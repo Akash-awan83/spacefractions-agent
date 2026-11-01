@@ -1,0 +1,2 @@
+# Runtime dependencies of the code agent (grows step by step)
+PyYAML>=6.0
