@@ -21,10 +21,12 @@ Architecture_View.md (UML) ────┘   (no LLM)    + 20    │  traceabili
 
 ## Demo and results
 
-* **Video:** [YouTube demo](VIDEO_LINK_HERE)
-* **Windows app:** `SpaceFractionsAgent.exe` under [Releases](../../releases) (no Python needed)
-* **Generated project from the final run:** [`sample_run/`](sample_run/), including the agent's logs in
-  [`sample_run/.agent/`](sample_run/.agent/) (`run_summary.json`, `bug_report.json`, `transcript.jsonl`)
+* **Windows app:** download `SpaceFractionsAgent.exe` from the
+  [v1.0 release](https://github.com/Akash-awan83/spacefractions-agent/releases/tag/v1.0) (no Python needed)
+* **Generated project from the final run:** [`sample_run/`](https://github.com/Akash-awan83/spacefractions-agent/tree/main/sample_run),
+  including the agent's logs in [`sample_run/.agent/`](https://github.com/Akash-awan83/spacefractions-agent/tree/main/sample_run/.agent)
+  (`run_summary.json`, `bug_report.json`, `transcript.jsonl`)
+  
 
 Final run on DeepSeek `deepseek-v4-pro` (official API), 4 November 2026, off-peak, started from the `.exe`:
 
