@@ -165,3 +165,17 @@ def test_resume_lists_existing_files_and_batching_rule(tmp_path):
     first_user = [m for m in model.received[0] if m["role"] == "user"][0]["content"]
     assert "spacefractions/question/models.py" in first_user
     assert "BATCH" in model.received[0][0]["content"]
+
+
+def test_budget_guard_keeps_a_reserve_for_the_next_call(tmp_path):
+    """Cost per step c, budget 2.5c: calls 1 and 2 fit (2c); a 3rd would reach 3c, so it never starts."""
+    looping = [{"role": "assistant", "content": None,
+                "tool_calls": [call("list_dir", {}, f"x{i}")]} for i in range(20)]
+    probe = CostTracker(DEFAULTS["pricing_per_million"])
+    c = probe.add(dict(USAGE))["cost_usd"]
+    agent, model, _ = make_agent(tmp_path, looping, budget_usd=2.5 * c)
+    agent.tracker.clock = probe.clock
+    res = agent.run("go")
+    assert res.status == "budget_exhausted"
+    assert res.cost["cost_usd"] <= 2.5 * c + 1e-12
+    assert res.steps == 2

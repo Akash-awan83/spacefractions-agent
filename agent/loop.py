@@ -7,7 +7,8 @@
         (repeat)
 
 Around that core sit the safeguards an unattended agent needs:
-  * budget guard   - stops before the dollar limit is crossed
+  * budget guard   - stops before the dollar limit is crossed: a new call starts only if
+                     the spend so far plus the most expensive call so far stays under it
   * step limit     - stops a model that never finishes
   * cancel flag    - lets the GUI stop a run
   * compaction     - shrinks old tool outputs when the context grows too big
@@ -122,7 +123,7 @@ class Agent:
                 if step >= self.max_steps:
                     status = "max_steps"
                     break
-                if self.tracker.cost_usd >= self.budget_usd:
+                if self.tracker.cost_usd + self.tracker.max_step_cost >= self.budget_usd:
                     status = "budget_exhausted"
                     break
                 step += 1

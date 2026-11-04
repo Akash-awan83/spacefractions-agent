@@ -1,0 +1,17 @@
+requirement_id,requirement,component,code_files,test_files
+FR-1,Play game,GameComponent,spacefractions/game/engine.py;spacefractions/ui/play_screen.py;spacefractions/ui/app.py;main.py,tests/test_game.py
+NFR-1,Responsive local gameplay,GameComponent,spacefractions/game/engine.py;spacefractions/ui/play_screen.py,tests/test_game.py
+ASR-1,Persist questions and scores,QuestionComponent,spacefractions/storage/database.py;spacefractions/storage/question_repository.py;spacefractions/storage/score_repository.py,tests/test_storage.py
+ASR-2,Safe inputs and parameterised SQL,UserComponent,spacefractions/storage/database.py;spacefractions/admin/service.py;spacefractions/user/models.py,tests/test_admin.py
+FR-2,View score,GameComponent,spacefractions/game/engine.py;spacefractions/ui/screens.py;spacefractions/storage/score_repository.py,tests/test_game.py;tests/test_storage.py
+FR-3,Update questions (admin CRUD),AdminComponent,spacefractions/admin/service.py;spacefractions/ui/admin_screen.py,tests/test_admin.py;tests/test_storage.py
+FR-4,View help,GameComponent,spacefractions/ui/screens.py,
+FR-5,Pause and resume game,GameComponent,spacefractions/game/engine.py;spacefractions/ui/play_screen.py,tests/test_game.py
+FR-6,Ending scene with feedback and replay,GameComponent,spacefractions/game/engine.py;spacefractions/ui/screens.py,tests/test_game.py
+FR-7,Skippable intro animation,GameComponent,spacefractions/ui/screens.py,
+FR-8,Main menu,GameComponent,spacefractions/ui/screens.py;spacefractions/ui/app.py,
+FR-9,Immediate answer feedback,GameComponent,spacefractions/game/engine.py;spacefractions/ui/play_screen.py,tests/test_game.py
+FR-10,Fraction operations,QuestionComponent,spacefractions/question/models.py;spacefractions/question/factory.py,tests/test_question.py
+FR-11,High scores,GameComponent,spacefractions/storage/score_repository.py;spacefractions/ui/screens.py,tests/test_storage.py
+FR-12,Multiple-choice questions,QuestionComponent,spacefractions/question/models.py;spacefractions/question/factory.py;spacefractions/ui/play_screen.py,tests/test_question.py
+FR-13,Game over returns to menu or replay,GameComponent,spacefractions/game/engine.py;spacefractions/ui/screens.py,tests/test_game.py

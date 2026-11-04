@@ -25,7 +25,7 @@ from tkinter.scrolledtext import ScrolledText
 from .config import (PROVIDERS, config_dir, load_config, make_client, mask_key, provider_of, resolve_api_key,
                      resolve_model, resolve_pricing, save_config, set_api_key, set_model)
 from .events import format_event
-from .llm import CostTracker, LLMError
+from .llm import PEAK_WARNING, CostTracker, LLMError, is_peak
 from .pipeline import create_agent, prepare, task_for
 
 APP_TITLE = "SpaceFractions Code Agent"
@@ -389,6 +389,9 @@ class AgentApp:
         if confirm and out.is_dir() and any(p.name != ".agent" for p in out.iterdir()):
             if not self._message("ask", APP_TITLE, f"{out}\nalready contains files.\n\nYes = continue (resume) the "
                                                    f"earlier run in this folder.\nNo = cancel and choose an empty folder."):
+                return
+        if confirm and provider_of(self.cfg) == "deepseek" and is_peak(resolve_pricing(self.cfg)):
+            if not self._message("ask", APP_TITLE, PEAK_WARNING + "\n\nStart anyway at double price?"):
                 return
         self.files_written.clear()
         self._set_plan([])

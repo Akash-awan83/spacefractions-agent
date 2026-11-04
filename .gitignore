@@ -7,3 +7,8 @@ dist/
 config.json
 .env
 .pytest_cache/
+practice_project/
+practice_ws/
+practice_run*/
+practice.json
+practice_view.md

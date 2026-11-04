@@ -79,13 +79,39 @@ def test_clean_message_keeps_reasoning_content():
     assert clean["reasoning_content"] == "r" and "extra" not in clean and clean["tool_calls"][0]["id"] == "1"
 
 
-def test_cost_tracker_uses_cache_prices():
-    t = CostTracker(DEFAULT_PRICING)
-    d = t.add({"prompt_tokens": 1_000_000, "prompt_cache_hit_tokens": 900_000,
-               "prompt_cache_miss_tokens": 100_000, "completion_tokens": 100_000})
-    expected = (900_000 * 0.003625 + 100_000 * 0.435 + 100_000 * 0.87) / 1_000_000
-    assert d["cost_usd"] == pytest.approx(expected)
-    assert t.cache_hit_rate == pytest.approx(0.9)
+def test_cost_tracker_uses_official_offpeak_and_peak_prices():
+    from datetime import datetime, timezone
+    usage = {"prompt_tokens": 1_000_000, "prompt_cache_hit_tokens": 900_000,
+             "prompt_cache_miss_tokens": 100_000, "completion_tokens": 100_000}
+    offpeak = (900_000 * 0.022 + 100_000 * 0.66 + 100_000 * 1.98) / 1_000_000
+    sunday = CostTracker(DEFAULT_PRICING, clock=lambda: datetime(2026, 11, 1, 2, 0, tzinfo=timezone.utc))
+    assert sunday.add(usage)["cost_usd"] == pytest.approx(offpeak)           # weekend: always off-peak
+    monday_peak = CostTracker(DEFAULT_PRICING, clock=lambda: datetime(2026, 11, 2, 2, 0, tzinfo=timezone.utc))
+    d = monday_peak.add(usage)
+    assert d["peak"] and d["cost_usd"] == pytest.approx(2 * offpeak)        # Mon 02:00 UTC: peak, double
+    monday_evening = CostTracker(DEFAULT_PRICING, clock=lambda: datetime(2026, 11, 2, 12, 0, tzinfo=timezone.utc))
+    assert monday_evening.add(usage)["cost_usd"] == pytest.approx(offpeak)
+    assert sunday.cache_hit_rate == pytest.approx(0.9)
+    assert monday_peak.summary()["peak_calls"] == 1 and monday_peak.max_step_cost == pytest.approx(2 * offpeak)
+
+
+@pytest.mark.parametrize("hour,weekday_date,peak", [
+    (0, 2, False), (1, 2, True), (3, 2, True), (4, 2, False), (6, 2, True), (9, 2, True), (10, 2, False),
+    (2, 7, False), (7, 8, False),       # Saturday 7 Nov, Sunday 8 Nov
+])
+def test_peak_hours_windows(hour, weekday_date, peak):
+    from datetime import datetime, timezone
+    from agent.llm import is_peak
+    assert is_peak(DEFAULT_PRICING, datetime(2026, 11, weekday_date, hour, 30, tzinfo=timezone.utc)) is peak
+
+
+def test_old_saved_prices_are_upgraded(tmp_path):
+    import json as _json
+    p = tmp_path / "c.json"
+    p.write_text(_json.dumps({"api_key": "sk-x", "pricing_per_million":
+                              {"cache_hit_input": 0.003625, "cache_miss_input": 0.435, "output": 0.87}}))
+    cfg = load_config(p)
+    assert cfg["pricing_per_million"]["output"] == 1.98 and cfg["api_key"] == "sk-x"
 
 
 def test_config_roundtrip_and_mask(tmp_path, monkeypatch):

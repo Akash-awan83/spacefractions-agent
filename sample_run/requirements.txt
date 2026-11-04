@@ -1,0 +1,1 @@
+# Space Fractions uses only the Python 3.11 standard library; no third-party packages are needed.

@@ -19,6 +19,31 @@ Architecture_View.md (UML) ────┘   (no LLM)    + 20    │  traceabili
                      2 Agent loop (DeepSeek, sandboxed tools) ── 3 Verifier (final gate) ──┘
 ```
 
+## Demo and results
+
+* **Video:** [YouTube demo](VIDEO_LINK_HERE)
+* **Windows app:** `SpaceFractionsAgent.exe` under [Releases](../../releases) (no Python needed)
+* **Generated project from the final run:** [`sample_run/`](sample_run/), including the agent's logs in
+  [`sample_run/.agent/`](sample_run/.agent/) (`run_summary.json`, `bug_report.json`, `transcript.jsonl`)
+
+Final run on DeepSeek `deepseek-v4-pro` (official API), 4 November 2026, off-peak, started from the `.exe`:
+
+| Measure | Result |
+| --- | --- |
+| Status | completed, all verification gates passed |
+| Token cost | **$0.115** (limit: $1.00; budget guard set to $0.95) |
+| Cache hit rate | 97.7% of input tokens |
+| Model calls | 10 |
+| Wall-clock time | 486 s (about 8 minutes) |
+| Files generated | 31 |
+| Generated unit tests | 11, all passing |
+| Final-gate rounds needed | 0 (the model ran `verify` itself before finishing; both verification rounds found no issues) |
+| Manual check | the generated Tkinter game was launched and played: intro, menu, questions with feedback, score |
+
+In this run the verifier found no issues in either round, so it caught no bugs; stating the contract in the
+prompt appears to have prevented the usual ones. The gates themselves are exercised by the test suite, which
+injects each kind of defect and checks that it is caught.
+
 ## How it works
 
 | Stage | Module | What it does |
@@ -80,11 +105,17 @@ described there to this agent, and states what was simplified.
 
 ## Cost
 
-DeepSeek bills cached prompt prefixes at a small fraction of the normal input price. The agent keeps
-its system prompt (instructions + architecture JSON, about 8k tokens) **byte-identical on every call**
-so it is served from the cache. The budget guard stops the run at **$0.90** by default (configurable,
-capped at $1.00). Each run writes the exact token counts and cost to `.agent/run_summary.json`.
-Prices are editable in the config file (see below).
+Prices follow the official DeepSeek page (checked 2026-11-04): for `deepseek-v4-pro`, per 1M tokens,
+cache-hit input $0.022, cache-miss input $0.66 and output $1.98 off-peak; **peak hours cost double**
+(Mon-Fri 01:00-04:00 and 06:00-10:00 UTC; weekends are off-peak). Every call is priced at the moment it
+is made, and older saved configs are upgraded to these prices automatically.
+
+* The system prompt (instructions + architecture JSON, about 8k tokens) is **byte-identical on every call**,
+  so it is billed at the cache-hit rate.
+* The **budget guard** (default $0.90, capped at $1.00) starts a new call only if the spend so far plus the
+  most expensive call so far stays under the budget, so a run cannot cross it.
+* Starting a DeepSeek run in peak hours asks for confirmation first.
+* Each run writes its tokens, cache hit rate, peak calls and cost to `.agent/run_summary.json`.
 
 ## Free testing providers (development only)
 
@@ -118,7 +149,7 @@ The same `.exe` also runs the generated tests and the generated game, so no Pyth
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements-dev.txt
-python -m pytest -q                       & rem 101 tests, no API key needed (a fake model is used)
+python -m pytest -q                       & rem 113 tests, no API key needed (a fake model is used)
 python -m agent gui                       & rem the desktop window
 python -m agent set-key                   & rem or use the CLI
 python -m agent ping
@@ -144,14 +175,37 @@ GitHub Actions (`.github/workflows/build-windows-exe.yml`) builds and smoke-test
 ```
 agent/            the code agent (preprocess, llm, loop, tools, verify, runner, gui, prompts, config)
 inputs/           the two MAAD artifacts for SFS
-tests/            101 tests (no network): parsers, client, providers, tools, loop, verifier, GUI
+sample_run/       the project the agent generated in the final DeepSeek run, with its .agent/ logs
+practice/         a small script that shows the verifier catching planted defects
+tests/            113 tests (no network): parsers, client, providers, tools, loop, verifier, GUI
 sf_agent_app.py   .exe entry point (GUI, --run-tests, --run-script)
 build_exe.bat     local Windows build
 ```
 
 ## Limitations
 
-* The verifier checks structure, imports, security patterns, documentation and tests; it cannot prove the
-  game is pleasant to play. A human still reviews the UI.
-* Conflict detection targets the artifact format MAAD produced for SFS; other formats may need new rules.
-* Model output varies between runs; the transcript and bug report make every run reviewable.
+Stated plainly, so they can be weighed against the results above.
+
+* **Generality.** The engine (loop, tools, sandbox, LLM client, budget guard, verifier mechanics, GUI, exe)
+  is generic. The verification *contract* is configured for SFS: the package names (`spacefractions/game`,
+  `question`, `user`, `admin`, `storage`, `ui`) and the screens described in the prompt are fixed in code.
+  Another architecture document would be parsed, but the gates would still expect the SFS packages.
+  Next step: derive the packages from the component diagram and the screens from the use cases.
+* **What the verifier cannot judge.** It checks what can be checked deterministically: syntax, imports,
+  layering, desktop-only UI, security patterns, headers, documentation, traceability and tests. It cannot
+  judge whether the game is pleasant to play or whether the layout fits the window; a person has to play it.
+* **Tests written by the same model.** A misunderstood requirement can produce a wrong test that passes.
+  "At least 8 tests" is a count, not coverage.
+* **Static checks have blind spots.** A call to a method that does not exist on an object is caught only if a
+  test executes it; dynamic and star imports are not checked; the SQL check catches queries built directly
+  in `execute(...)` with f-strings, `format` or `+`, not queries assembled earlier in a variable.
+* **Bug categories are heuristic.** Test failures are classified by patterns in the traceback.
+* **Conflict rules fit MAAD's SFS artifacts.** Documents in another format may need new rules.
+* **One run.** The results above come from a single run; model output varies, and no statistics over
+  repeated runs were collected.
+* **Simplifications versus Claude Code.** No shell tool, single-layer compaction, no streaming, no
+  sub-agents, no MCP (see the comparison table above for the reasons).
+* **Prices.** Costs use DeepSeek's published prices as checked on 4 November 2026, including peak hours; the
+  price table in the config file must be updated if DeepSeek changes them.
+* **Development note.** The project was built with the help of an AI coding assistant; the design decisions,
+  testing on Windows and the runs were done and checked by the author.

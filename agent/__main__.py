@@ -19,7 +19,7 @@ from . import preprocess
 from .events import format_event
 from .config import (PROVIDERS, config_path, load_config, make_client, mask_key, resolve_api_key,
                      resolve_model, resolve_pricing, save_config, set_api_key, set_model)
-from .llm import CostTracker, LLMError
+from .llm import PEAK_WARNING, CostTracker, LLMError, is_peak
 
 DEFAULT_DOC = Path("inputs/Architecture_Documentation.md")
 DEFAULT_VIEWS = Path("inputs/Architecture_View.md")
@@ -123,6 +123,11 @@ def cmd_run(args) -> int:
         return 1
     if p != "deepseek":
         print(f"NOTE: {p} is for testing only; the task requires DeepSeek for the real run.")
+    elif is_peak(resolve_pricing(cfg)) and not args.allow_peak:
+        print("WARNING:", PEAK_WARNING)
+        if input("Start anyway at double price? [y/N] ").strip().lower() != "y":
+            print("Not started. Run again in off-peak hours (or pass --allow-peak).")
+            return 1
     out = Path(args.out)
     if out.exists() and any(p.name != ".agent" for p in out.iterdir()) and not (args.force or args.resume):
         print(f"Output folder {out} already contains files.\n"
@@ -178,6 +183,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--budget", type=float)
     r.add_argument("--max-steps", type=int)
     r.add_argument("--resume", action="store_true", help="continue an interrupted run in the same folder")
+    r.add_argument("--allow-peak", action="store_true", help="start even during DeepSeek peak hours (double price)")
     r.add_argument("--force", action="store_true", help=argparse.SUPPRESS)
     sub.add_parser("preprocess", help="only run Step 1", add_help=False)
     sub.add_parser("gui", help="open the desktop window")

@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import socket
 import time
+from datetime import datetime, timezone
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -35,14 +36,34 @@ class BalanceError(LLMError):
 
 
 # --------------------------------------------------------------------------- cost
+def is_peak(pricing: dict, now: datetime | None = None) -> bool:
+    """DeepSeek peak hours: Mon-Fri, inside one of the UTC windows in pricing['peak_hours_utc']."""
+    now = now or datetime.now(timezone.utc)
+    now = now.astimezone(timezone.utc)
+    if now.weekday() >= 5:
+        return False
+    return any(a <= now.hour < b for a, b in pricing.get("peak_hours_utc", []))
+
+
+PEAK_WARNING = ("DeepSeek PEAK hours now: prices are DOUBLE. Peak = Mon-Fri 01:00-04:00 and 06:00-10:00 UTC (Pakistan: 06:00-09:00 and 11:00-15:00). Weekends are always off-peak.")
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 @dataclass
 class CostTracker:
     """Adds up token usage and converts it to dollars.
 
     DeepSeek reports cache hits and misses separately. A cache hit (a prompt
-    prefix the server has seen before) costs ~1% of a miss, which is why the
-    agent keeps its system prompt and architecture JSON identical on every call."""
+    prefix the server has seen before) costs about 3% of a miss, which is why the
+    agent keeps its system prompt and architecture JSON identical on every call.
+    Each call is priced at the moment it happens (peak hours cost double)."""
     pricing: dict
+    clock: Callable[[], datetime] = _utc_now
+    total_cost: float = 0.0
+    peak_calls: int = 0
     calls: int = 0
     prompt_tokens: int = 0
     cache_hit_tokens: int = 0
@@ -58,7 +79,10 @@ class CostTracker:
         miss = int(usage.get("prompt_cache_miss_tokens", prompt - hit))
         out = int(usage.get("completion_tokens", 0))
         reasoning = int((usage.get("completion_tokens_details") or {}).get("reasoning_tokens", 0))
-        cost = self._price(hit, miss, out)
+        peak = is_peak(self.pricing, self.clock())
+        cost = self._price(hit, miss, out) * (float(self.pricing.get("peak_multiplier", 1.0)) if peak else 1.0)
+        self.total_cost += cost
+        self.peak_calls += int(peak)
         self.calls += 1
         self.prompt_tokens += prompt
         self.cache_hit_tokens += hit
@@ -66,7 +90,7 @@ class CostTracker:
         self.completion_tokens += out
         self.reasoning_tokens += reasoning
         delta = {"prompt": prompt, "hit": hit, "miss": miss, "output": out,
-                 "reasoning": reasoning, "cost_usd": cost}
+                 "reasoning": reasoning, "cost_usd": cost, "peak": peak}
         self.history.append(delta)
         return delta
 
@@ -76,7 +100,12 @@ class CostTracker:
 
     @property
     def cost_usd(self) -> float:
-        return self._price(self.cache_hit_tokens, self.cache_miss_tokens, self.completion_tokens)
+        return self.total_cost
+
+    @property
+    def max_step_cost(self) -> float:
+        """The most expensive single call so far: the guard keeps this much in reserve."""
+        return max((h["cost_usd"] for h in self.history), default=0.0)
 
     @property
     def cache_hit_rate(self) -> float:
@@ -88,7 +117,8 @@ class CostTracker:
                 "cache_hit_tokens": self.cache_hit_tokens, "cache_miss_tokens": self.cache_miss_tokens,
                 "cache_hit_rate": round(self.cache_hit_rate, 4),
                 "completion_tokens": self.completion_tokens, "reasoning_tokens": self.reasoning_tokens,
-                "cost_usd": round(self.cost_usd, 6), "pricing_per_million": self.pricing}
+                "cost_usd": round(self.cost_usd, 6), "peak_calls": self.peak_calls,
+                "pricing_per_million": self.pricing}
 
 
 # ------------------------------------------------------------------------ messages

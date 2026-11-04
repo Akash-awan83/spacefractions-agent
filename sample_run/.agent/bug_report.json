@@ -1,0 +1,8 @@
+{
+  "taxonomy": "Gao et al., A Survey of Bugs in AI-Generated Code (arXiv:2512.05239) + project-level checks",
+  "rounds": 2,
+  "final_passed": true,
+  "final_tests_run": 11,
+  "by_category": {},
+  "issues": []
+}

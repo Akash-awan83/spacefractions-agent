@@ -15,11 +15,17 @@ from pathlib import Path
 
 APP_NAME = "SpaceFractionsAgent"
 
-# Official DeepSeek prices (USD per 1M tokens) for deepseek-v4-pro at the time of
-# writing. Verify on the DeepSeek pricing page; the values are editable in config.json.
-DEFAULT_PRICING = {"cache_hit_input": 0.003625, "cache_miss_input": 0.435, "output": 0.87}
+# Official DeepSeek prices for deepseek-v4-pro, USD per 1M tokens, OFF-PEAK rates.
+# Source: https://api-docs.deepseek.com/quick_start/pricing (checked 2026-11-01).
+# Peak hours (Mon-Fri 01:00-04:00 and 06:00-10:00 UTC) cost twice as much.
+# Chinese public holidays are off-peak there but counted as peak here (safe side).
+PRICING_VERSION = 2
+DEFAULT_PRICING = {"version": PRICING_VERSION, "cache_hit_input": 0.022, "cache_miss_input": 0.66, "output": 1.98,
+                   "peak_multiplier": 2.0, "peak_hours_utc": [[1, 4], [6, 10]],
+                   "source": "https://api-docs.deepseek.com/quick_start/pricing (checked 2026-11-01)"}
 
-FREE_PRICING = {"cache_hit_input": 0.0, "cache_miss_input": 0.0, "output": 0.0}
+FREE_PRICING = {"version": PRICING_VERSION, "cache_hit_input": 0.0, "cache_miss_input": 0.0, "output": 0.0,
+                "peak_multiplier": 1.0, "peak_hours_utc": []}
 
 # Providers. DeepSeek is the one the task requires; the others exist only so the agent can be
 # exercised on a free tier during development. Final runs, cost evidence and the demo use DeepSeek.
@@ -73,6 +79,10 @@ def load_config(path: Path | None = None) -> dict:
                 cfg.update({k: v for k, v in stored.items() if k in DEFAULTS})
             if cfg.get("provider") not in PROVIDERS:
                 cfg["provider"] = "deepseek"
+            # a config saved with the old (pre-November 2026) prices is upgraded automatically
+            if not isinstance(cfg.get("pricing_per_million"), dict) or \
+                    cfg["pricing_per_million"].get("version") != PRICING_VERSION:
+                cfg["pricing_per_million"] = copy.deepcopy(DEFAULT_PRICING)
         except (OSError, json.JSONDecodeError):
             pass  # a broken file falls back to defaults instead of crashing the app
     return cfg

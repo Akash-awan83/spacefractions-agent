@@ -146,3 +146,13 @@ def test_provider_switch_keeps_keys_separate(app):
     app.provider_var.set(PROVIDERS["deepseek"]["label"])
     app._on_provider_change()
     assert app.key_var.get() == "sk-deep-1234" and app.provider_note.cget("text") == ""
+
+
+def test_peak_hours_ask_before_a_deepseek_run(app, monkeypatch):
+    import agent.gui as gui
+    monkeypatch.setattr(gui, "is_peak", lambda pricing: True)
+    asked = []
+    app._message = lambda kind, title, text: (asked.append(text), False)[1]   # user answers "No"
+    app.key_var.set("sk-deep-1234")
+    app.start_run(confirm=True)
+    assert asked and "PEAK" in asked[-1] and app.worker is None
