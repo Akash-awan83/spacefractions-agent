@@ -21,8 +21,7 @@ Architecture_View.md (UML) ────┘   (no LLM)    + 20    │  traceabili
 
 ## Demo and results
 
-* **Windows app:** download `SpaceFractionsAgent.exe` from the
-  [v1.0 release](https://github.com/Akash-awan83/spacefractions-agent/releases/tag/v1.0) (no Python needed)
+* **Windows app:** [download SpaceFractionsAgent.exe](https://github.com/Akash-awan83/spacefractions-agent/blob/main/app/SpaceFractionsAgent.exe) (no Python needed)
 * **Generated project from the final run:** [`sample_run/`](https://github.com/Akash-awan83/spacefractions-agent/tree/main/sample_run),
   including the agent's logs in [`sample_run/.agent/`](https://github.com/Akash-awan83/spacefractions-agent/tree/main/sample_run/.agent)
   (`run_summary.json`, `bug_report.json`, `transcript.jsonl`)
