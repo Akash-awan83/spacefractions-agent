@@ -11,7 +11,12 @@ Around that core sit the safeguards an unattended agent needs:
                      the spend so far plus the most expensive call so far stays under it
   * step limit     - stops a model that never finishes
   * cancel flag    - lets the GUI stop a run
-  * compaction     - shrinks old tool outputs when the context grows too big
+  * compression    - context.py's pipeline (snip -> dedupe -> summarise) when the context grows
+  * recovery       - "continue" strategies instead of crashing: API retries (llm.py), a cut-off
+                     reply is continued, an empty reply is nudged, a context-overflow error is
+                     answered by compressing and retrying, bad tool arguments go back to the model
+  * parallel reads - read-only tool calls in one reply run concurrently; writes run in order
+  * session file   - the API messages are saved after every step (.agent/session.json)
   * transcript     - every message is logged to <output>/.agent/ for review
   * final gate     - when the model says it is done, the verifier (verify.py) runs; blocking
                      issues are sent back and the model must fix them (max `max_gate_rounds`)
@@ -21,10 +26,12 @@ from __future__ import annotations
 import json
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Protocol
 
+from .context import compress, estimate_tokens
 from .llm import CostTracker, LLMError, clean_assistant_message
 from .tools import ToolBox
 
@@ -54,7 +61,8 @@ class Agent:
     def __init__(self, llm: ChatModel, toolbox: ToolBox, system_prompt: str, tracker: CostTracker,
                  max_steps: int = 80, budget_usd: float = 0.90, compact_at_tokens: int = 100_000,
                  on_event: EventFn | None = None, log_dir: Path | None = None,
-                 verifier: Callable | None = None, max_gate_rounds: int = 3, meta: dict | None = None):
+                 verifier: Callable | None = None, max_gate_rounds: int = 3, meta: dict | None = None,
+                 summarize_above: int = 150_000):
         self.llm = llm
         self.meta = dict(meta or {})
         self.verifier = verifier
@@ -66,6 +74,8 @@ class Agent:
         self.max_steps = max_steps
         self.budget_usd = budget_usd
         self.compact_at_tokens = compact_at_tokens
+        self.summarize_above = summarize_above
+        self.recent_files: list[str] = []
         self.on_event = on_event or (lambda kind, data: None)
         self.cancel_flag = threading.Event()
         self.messages: list[dict] = [{"role": "system", "content": system_prompt}]
@@ -93,19 +103,31 @@ class Agent:
         self.messages.append(msg)
         self._log(msg)
 
-    def _compact(self):
-        """Elide the bodies of old tool results. This changes earlier messages, so the
-        next call misses the cache once - acceptable, because it only happens when the
-        context is already large and it makes every later call cheaper."""
-        keep_tail = 10
-        changed = 0
-        for m in self.messages[1:-keep_tail]:
-            if m["role"] == "tool" and len(m.get("content", "")) > 500 and not m.get("_compacted"):
-                m["content"] = m["content"][:300] + "\n[...older output elided to save context; re-run the tool if needed]"
-                m["_compacted"] = True
-                changed += 1
-        if changed:
-            self._emit("compacted", messages=changed)
+    def _compact(self, force_summary: bool = False):
+        """Compression pipeline (context.py). Changing earlier messages costs one cache miss, so it
+        only runs when the context is already large."""
+        stats = compress(self.messages, summarize=self._summarize,
+                         summarize_above=1 if force_summary else self.summarize_above,
+                         recent_files=self.recent_files)
+        if any(stats.values()):
+            self._emit("compacted", messages=sum(stats.values()), **stats)
+        return stats
+
+    def _summarize(self, transcript: str) -> str:
+        msg, usage, _ = self.llm.chat(
+            [{"role": "system", "content": "Summarise this coding-agent transcript for the agent itself: the "
+                                           "task, decisions taken, files created and their purpose, test status, "
+                                           "and what remains. Be concise and factual."},
+             {"role": "user", "content": transcript}], tools=None)
+        self.tracker.add(usage)
+        return msg.get("content") or ""
+
+    def _save_session(self):
+        try:
+            (self.log_dir / "session.json").write_text(json.dumps(self._api_messages(), ensure_ascii=False),
+                                                       encoding="utf-8")
+        except OSError:
+            pass
 
     def _api_messages(self) -> list[dict]:
         return [{k: v for k, v in m.items() if not k.startswith("_")} for m in self.messages]
@@ -128,7 +150,18 @@ class Agent:
                     break
                 step += 1
                 self._emit("thinking", step=step)
-                msg, usage, finish = self.llm.chat(self._api_messages(), tools=self.tools.schemas())
+                try:
+                    msg, usage, finish = self.llm.chat(self._api_messages(), tools=self.tools.schemas())
+                except LLMError as e:
+                    # recovery: the context is too long -> compress hard and try this step again
+                    if _is_context_overflow(str(e)) and not getattr(self, "_overflow_retry", False):
+                        self._overflow_retry = True
+                        self._emit("error", message="context too long - compressing and retrying")
+                        self._compact(force_summary=True)
+                        step -= 1
+                        continue
+                    raise
+                self._overflow_retry = False
                 delta = self.tracker.add(usage)
                 self._emit("usage", step=step, **delta, total_usd=self.tracker.cost_usd,
                            cache_hit_rate=self.tracker.cache_hit_rate)
@@ -140,6 +173,11 @@ class Agent:
                 if not calls:
                     if finish == "length":
                         self._append({"role": "user", "content": "Your reply was cut off. Continue."})
+                        continue
+                    if not (assistant.get("content") or "").strip() and not getattr(self, "_nudged", False):
+                        self._nudged = True    # recovery: an empty reply gets one nudge
+                        self._append({"role": "user", "content": "Your reply was empty. Continue the task, "
+                                                                 "or finish with a short summary."})
                         continue
                     final = assistant.get("content") or ""
                     if self.verifier is None:
@@ -158,12 +196,10 @@ class Agent:
                                   f"automatic verification found problems.\n{report.format()}\n"
                                   f"Fix every blocking issue, then finish again with a short summary."})
                     continue
-                for tc in calls:
-                    self._run_tool(tc, step)
-                    if self.cancel_flag.is_set():
-                        break
+                self._run_calls(calls, step)
                 if delta["prompt"] > self.compact_at_tokens:
                     self._compact()
+                self._save_session()
         except LLMError as e:
             status, error = "error", str(e)
             self._emit("error", message=error)
@@ -184,23 +220,50 @@ class Agent:
                    round=report.round)
         return report
 
-    def _run_tool(self, tc: dict, step: int):
+    def _run_calls(self, calls: list[dict], step: int):
+        """Read-only calls in one reply run in parallel (as in Claude Code's tool engine);
+        anything that writes or executes runs one at a time, in order."""
+        parsed = [self._parse_call(tc) for tc in calls]
+        parallel = len(parsed) > 1 and all(p[2] is not None and self.tools.is_read_only(p[0]) for p in parsed)
+        if parallel:
+            for name, _tc, args, _err in parsed:
+                self._emit("tool_call", name=name, args=_summarise_args(args))
+            with ThreadPoolExecutor(max_workers=min(4, len(parsed))) as pool:
+                results = list(pool.map(lambda p: self.tools.execute(p[0], p[2]), parsed))
+            for (name, tc, args, _err), res in zip(parsed, results):
+                self._finish_call(name, tc, args, res.ok, res.content, step)
+            return
+        for name, tc, args, err in parsed:
+            if self.cancel_flag.is_set():
+                break
+            if args is None:
+                self._finish_call(name, tc, {}, False, err, step)
+                continue
+            self._emit("tool_call", name=name, args=_summarise_args(args))
+            res = self.tools.execute(name, args)
+            self._finish_call(name, tc, args, res.ok, res.content, step)
+
+    @staticmethod
+    def _parse_call(tc: dict):
         name = tc["function"]["name"]
         raw = tc["function"].get("arguments") or "{}"
         try:
             args = json.loads(raw)
             if not isinstance(args, dict):
                 raise ValueError("arguments must be a JSON object")
+            return name, tc, args, ""
         except ValueError as e:
-            res_ok, content = False, f"ERROR: arguments are not valid JSON ({e}). Send a JSON object."
-        else:
-            self._emit("tool_call", name=name, args=_summarise_args(args))
-            res = self.tools.execute(name, args)
-            res_ok, content = res.ok, res.content
-            if name == "todo_write" and res.ok:
-                self._emit("todo", items=list(self.tools.todos))
-            if name in ("write_file", "edit_file") and res.ok:
-                self._emit("file", path=args.get("path", ""))
+            return name, tc, None, f"ERROR: arguments are not valid JSON ({e}). Send a JSON object."
+
+    def _finish_call(self, name: str, tc: dict, args: dict, res_ok: bool, content: str, step: int):
+        if name == "todo_write" and res_ok:
+            self._emit("todo", items=list(self.tools.todos))
+        if name in ("write_file", "edit_file") and res_ok:
+            path = args.get("path", "")
+            self._emit("file", path=path)
+            if path in self.recent_files:
+                self.recent_files.remove(path)
+            self.recent_files.append(path)
         left = self.max_steps - step
         if left <= 5:
             content += f"\n[agent notice: only {left} model call(s) left - wrap up and finish]"
@@ -209,6 +272,11 @@ class Agent:
             content += f"\n[agent notice: budget nearly used (${remaining:.3f} left) - finish now]"
         self._emit("tool_result", name=name, ok=res_ok, preview=content[:300])
         self._append({"role": "tool", "tool_call_id": tc["id"], "content": content})
+
+
+def _is_context_overflow(text: str) -> bool:
+    t = text.lower()
+    return ("context" in t and ("length" in t or "too long" in t or "maximum" in t)) or "too many tokens" in t
 
 
 def _summarise_args(args: dict) -> dict:

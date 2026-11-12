@@ -125,7 +125,7 @@ def test_compaction_elides_old_tool_output(tmp_path):
     agent, model, events = make_agent(tmp_path, script, compact_at_tokens=500)
     agent.run("go")
     assert "compacted" in events
-    assert any("elided" in m.get("content", "") for m in agent.messages if m["role"] == "tool")
+    assert any("snipped" in m.get("content", "") for m in agent.messages if m["role"] == "tool")
 
 
 def test_pipeline_with_real_inputs_and_fake_model(tmp_path):
@@ -134,7 +134,7 @@ def test_pipeline_with_real_inputs_and_fake_model(tmp_path):
     cfg = dict(DEFAULTS)
     arch = build(ROOT / "inputs/Architecture_Documentation.md", ROOT / "inputs/Architecture_View.md")
     model = FakeModel(MINI_PROJECT[:1] + script_writing(valid_files(arch)))
-    res = run_pipeline(cfg, ROOT / "inputs/Architecture_Documentation.md", ROOT / "inputs/Architecture_View.md",
+    res = run_pipeline(cfg, [ROOT / "inputs/Architecture_Documentation.md", ROOT / "inputs/Architecture_View.md"],
                        tmp_path / "out", llm=model)
     assert res.status == "completed" and res.verified is True
     assert any(t["name"] == "verify" for t in [s["function"] for s in model_tools(model)])
@@ -148,8 +148,8 @@ def test_pipeline_with_real_inputs_and_fake_model(tmp_path):
 
 
 def test_resume_lists_existing_files_and_batching_rule(tmp_path):
+    from agent.context import DEFAULT_TASK as TASK_PROMPT
     from agent.pipeline import task_for
-    from agent.prompts import TASK_PROMPT
     out = tmp_path / "o"
     assert task_for(out) == TASK_PROMPT
     (out / ".agent").mkdir(parents=True)
@@ -160,8 +160,8 @@ def test_resume_lists_existing_files_and_batching_rule(tmp_path):
     t = task_for(out)
     assert "RESUME" in t and "spacefractions/question/models.py" in t
     model = FakeModel([{"role": "assistant", "content": "ok"}])
-    run_pipeline(dict(DEFAULTS), ROOT / "inputs/Architecture_Documentation.md",
-                 ROOT / "inputs/Architecture_View.md", out, llm=model)
+    run_pipeline(dict(DEFAULTS), [ROOT / "inputs/Architecture_Documentation.md",
+                 ROOT / "inputs/Architecture_View.md"], out, llm=model)
     first_user = [m for m in model.received[0] if m["role"] == "user"][0]["content"]
     assert "spacefractions/question/models.py" in first_user
     assert "BATCH" in model.received[0][0]["content"]
@@ -179,3 +179,83 @@ def test_budget_guard_keeps_a_reserve_for_the_next_call(tmp_path):
     assert res.status == "budget_exhausted"
     assert res.cost["cost_usd"] <= 2.5 * c + 1e-12
     assert res.steps == 2
+
+
+# ---- Version 2: parallel reads, recovery strategies ------------------------------------------
+def test_read_only_calls_in_one_reply_run_in_parallel(tmp_path):
+    import threading
+    import time as _t
+    agent, model, _ = make_agent(tmp_path, [
+        {"role": "assistant", "content": None, "tool_calls": [call("read_file", {"path": f"f{i}.txt"}, f"r{i}")
+                                                              for i in range(4)]},
+        {"role": "assistant", "content": "done"}])
+    for i in range(4):
+        (agent.tools.root / f"f{i}.txt").write_text("x")
+    active, peak = [0], [0]
+    lock = threading.Lock()
+    original = agent.tools.execute
+
+    def slow(name, args):
+        with lock:
+            active[0] += 1
+            peak[0] = max(peak[0], active[0])
+        _t.sleep(0.2)
+        with lock:
+            active[0] -= 1
+        return original(name, args)
+
+    agent.tools.execute = slow
+    agent.run("go")
+    assert peak[0] > 1                     # several reads were running at the same time
+    tool_ids = [m["tool_call_id"] for m in agent.messages if m["role"] == "tool"]
+    assert tool_ids == ["r0", "r1", "r2", "r3"]   # results stay in order
+
+
+def test_empty_reply_gets_one_nudge(tmp_path):
+    agent, model, _ = make_agent(tmp_path, [{"role": "assistant", "content": ""},
+                                            {"role": "assistant", "content": "finished"}])
+    res = agent.run("go")
+    assert res.status == "completed" and res.final_message == "finished"
+    assert any("reply was empty" in (m.get("content") or "") for m in agent.messages if m["role"] == "user")
+
+
+def test_context_overflow_is_recovered_by_compressing(tmp_path):
+    from agent.llm import LLMError
+
+    class Overflow(FakeModel):
+        calls = 0
+
+        def chat(self, messages, tools=None, **kw):
+            Overflow.calls += 1
+            if Overflow.calls == 1:
+                raise LLMError("HTTP 400: This model's maximum context length is 131072 tokens")
+            if tools is None:           # the summariser
+                return {"role": "assistant", "content": "summary"}, dict(self.usage), "stop"
+            return super().chat(messages, tools, **kw)
+
+    model = Overflow([{"role": "assistant", "content": "done after recovery"}])
+    agent = Agent(llm=model, toolbox=ToolBox(root=tmp_path / "ws"), system_prompt="S",
+                  tracker=CostTracker(DEFAULTS["pricing_per_million"]))
+    res = agent.run("go")
+    assert res.status == "completed" and res.final_message == "done after recovery"
+
+
+def test_session_file_is_saved_each_step(tmp_path):
+    agent, model, _ = make_agent(tmp_path, MINI_PROJECT)
+    agent.run("go")
+    saved = json.loads((tmp_path / "ws" / ".agent" / "session.json").read_text())
+    assert saved[0]["role"] == "system" and any(m["role"] == "tool" for m in saved)
+
+
+def test_general_task_without_inputs(tmp_path):
+    """A plain natural-language task with no input files - the agent is not tied to one project."""
+    cfg = dict(DEFAULTS, verify_before_finish=False, target="any")
+    model = FakeModel([{"role": "assistant", "content": None, "tool_calls": [
+        call("write_file", {"path": "hello.py", "content": "print('hi')\n"}, "h1")]},
+        {"role": "assistant", "content": "Wrote hello.py"}])
+    res = run_pipeline(cfg, [], tmp_path / "out", task="Write hello.py that prints hi", llm=model)
+    assert res.status == "completed" and (tmp_path / "out" / "hello.py").is_file()
+    system, first_user = model.received[0][0]["content"], model.received[0][1]["content"]
+    assert first_user == "Write hello.py that prints hi"
+    assert "Attached input" not in system and "Verification contract" not in system
+    assert res.meta["permission_mode"] == "workspace-write"

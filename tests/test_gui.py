@@ -68,9 +68,13 @@ def log_text(app):
     return app.log.get("1.0", "end")
 
 
-def test_defaults_prefill_sample_inputs(app):
-    assert app.doc_var.get().endswith("Architecture_Documentation.md")
-    assert app.views_var.get().endswith("Architecture_View.md")
+def test_defaults_prefill_task_inputs_and_settings(app):
+    from agent.context import DEFAULT_TASK
+    files = app.inputs_list.get(0, "end")
+    assert any(f.endswith("Architecture_Documentation.md") for f in files)
+    assert any(f.endswith("Architecture_View.md") for f in files)
+    assert app.task_text.get("1.0", "end").strip() == DEFAULT_TASK
+    assert app.mode_var.get() == "workspace-write" and app.target_var.get() == "desktop" and app.verify_var.get()
     assert app.model_var.get() == "deepseek-v4-pro" and app.budget_var.get() == "0.90"
 
 
@@ -156,3 +160,44 @@ def test_peak_hours_ask_before_a_deepseek_run(app, monkeypatch):
     app.key_var.set("sk-deep-1234")
     app.start_run(confirm=True)
     assert asked and "PEAK" in asked[-1] and app.worker is None
+
+
+def test_permission_dialog_from_the_agent_thread(app):
+    import threading
+    answers = []
+    t = threading.Thread(target=lambda: answers.append(
+        app._confirm_from_worker("bash", "network: installing packages", {"command": "pip install x"})))
+    t.start()
+    assert pump(app, lambda: answers)          # the Tk thread showed the dialog and answered
+    t.join(5)
+    assert answers == [True] and "ALLOWED by user" in log_text(app)
+    assert any("pip install x" in m[1] for m in app.msgs)
+
+
+def test_general_task_in_the_window(app, tmp_path):
+    app._set_task("Write hello.py that prints hi")
+    app.inputs_list.delete(0, "end")
+    app.verify_var.set(False)
+    app.target_var.set("any")
+    app.llm_override = FakeModel([
+        {"role": "assistant", "content": None, "tool_calls": [call("write_file", {"path": "hello.py",
+                                                                                 "content": "print('hi')\n"}, "w")]},
+        {"role": "assistant", "content": "Wrote hello.py"}])
+    app.start_run(confirm=False)
+    assert pump(app, lambda: app.status_lbl.cget("text") == "Completed")
+    assert (tmp_path / "out" / "hello.py").is_file()
+    sent = app.llm_override.received[0]
+    assert sent[1]["content"] == "Write hello.py that prints hi"
+
+
+def test_input_list_add_and_remove(app, tmp_path, monkeypatch):
+    import agent.gui as gui
+    f = tmp_path / "notes.txt"
+    f.write_text("x")
+    monkeypatch.setattr(gui.filedialog, "askopenfilenames", lambda **k: [str(f)])
+    app._add_inputs()
+    assert str(f) in app.inputs_list.get(0, "end")
+    app.inputs_list.selection_clear(0, "end")
+    app.inputs_list.selection_set(app.inputs_list.size() - 1)
+    app._remove_inputs()
+    assert str(f) not in app.inputs_list.get(0, "end")

@@ -51,7 +51,7 @@ def test_edit_unique_ambiguous_missing(box):
 def test_search_and_list(box):
     box.execute("write_file", {"path": "a/one.py", "content": "def play():\n    pass\n"})
     box.execute("write_file", {"path": "b/two.py", "content": "play()\n"})
-    out = box.execute("search", {"pattern": r"play\("}).content
+    out = box.execute("grep_search", {"pattern": r"play\(", "glob": "*.py"}).content
     assert "a/one.py:1:" in out and "b/two.py:1:" in out
     tree = box.execute("list_dir", {}).content
     assert "a/" in tree and "one.py" in tree
@@ -106,3 +106,50 @@ def test_run_tests_timeout(tmp_path):
     box = ToolBox(root=tmp_path / "ws", test_timeout=3)
     _project(box, "        while True:\n            pass\n")
     assert "TIMEOUT" in box.execute("run_tests", {}).content
+
+
+# ---- Version 2: reference tool set, permissions, large outputs ------------------------------
+from agent.permissions import PermissionPolicy  # noqa: E402
+
+
+def test_glob_search(box):
+    box.execute("write_file", {"path": "pkg/a.py", "content": "x"})
+    box.execute("write_file", {"path": "pkg/sub/b.py", "content": "x"})
+    box.execute("write_file", {"path": "c.txt", "content": "x"})
+    out = box.execute("glob_search", {"pattern": "**/*.py"}).content
+    assert "pkg/a.py" in out and "pkg/sub/b.py" in out and "c.txt" not in out
+
+
+def test_bash_runs_safe_commands_in_the_workspace(tmp_path):
+    box = ToolBox(root=tmp_path / "ws", policy=PermissionPolicy(tmp_path / "ws"))
+    box.execute("write_file", {"path": "hello.txt", "content": "salam"})
+    out = box.execute("bash", {"command": "echo hi"}).content
+    assert out.startswith("exit code 0") and "hi" in out
+
+
+def test_bash_risky_command_is_denied_without_approval(tmp_path):
+    box = ToolBox(root=tmp_path / "ws", policy=PermissionPolicy(tmp_path / "ws"))
+    res = box.execute("bash", {"command": "pip install requests"})
+    assert not res.ok and "PERMISSION DENIED" in res.content
+
+
+def test_bash_risky_command_runs_after_user_approval(tmp_path):
+    asked = []
+    pol = PermissionPolicy(tmp_path / "ws", confirm=lambda t, r, a: (asked.append(a["command"]), True)[1])
+    box = ToolBox(root=tmp_path / "ws", policy=pol)
+    res = box.execute("bash", {"command": "python -c \"print(6*7)\""})
+    assert res.ok and "42" in res.content and asked
+
+
+def test_read_only_mode_blocks_write_file(tmp_path):
+    box = ToolBox(root=tmp_path / "ws", policy=PermissionPolicy(tmp_path / "ws", mode="read-only"))
+    assert "PERMISSION DENIED" in box.execute("write_file", {"path": "a.txt", "content": "x"}).content
+    assert not (tmp_path / "ws" / "a.txt").exists()
+
+
+def test_large_output_is_spilled_to_disk(box):
+    box.execute("write_file", {"path": "big.txt", "content": "\n".join(("line %d " % i) + "x" * 60 for i in range(600))})
+    out = box.execute("read_file", {"path": "big.txt"}).content     # 600 lines x ~70 chars > 12,000
+    assert "full text is saved at .agent/tool_outputs/" in out
+    saved = sorted((box.root / ".agent" / "tool_outputs").iterdir())
+    assert saved and saved[0].stat().st_size > 12_000

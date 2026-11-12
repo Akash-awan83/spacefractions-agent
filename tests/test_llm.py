@@ -193,3 +193,14 @@ def test_gemini_thought_signature_is_echoed_back():
     plain = clean_assistant_message({"role": "assistant", "content": None, "tool_calls": [
         {"id": "b", "function": {"name": "f", "arguments": "{}"}}]})
     assert "extra_content" not in plain["tool_calls"][0]   # DeepSeek messages stay unchanged
+
+
+def test_version1_settings_are_still_read(tmp_path, monkeypatch):
+    import json as _json
+    from agent import config as cfgmod
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    legacy = tmp_path / cfgmod.LEGACY_APP_NAMES[0] / "config.json"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text(_json.dumps({"api_key": "sk-old-1234"}))
+    assert cfgmod.load_config()["api_key"] == "sk-old-1234"

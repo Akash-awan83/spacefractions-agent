@@ -1,5 +1,12 @@
-"""The tools the model can call, modelled on Claude Code's core tool set
-(Read, Write, Edit, Glob/Grep, Bash-for-tests, TodoWrite) but sandboxed:
+"""The tools the model can call, following the tool set of the references
+(claw-code: read_file, write_file, edit_file, glob_search, grep_search, bash, TodoWrite;
+Claude Code: Read, Write, Edit, Glob, Grep, Bash, TodoWrite).
+
+As in how-claude-code-works, every tool goes through ONE execution pipeline:
+    permission check -> run -> clip / spill large output to disk -> result
+Read-only tools may run in parallel (see loop.py); writes and commands run one at a time.
+
+Older notes on the sandbox:
 
   * every path is resolved inside ONE workspace folder (the output directory);
     '..', absolute paths and symlinks that escape it are refused;
@@ -22,9 +29,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from .permissions import READ_ONLY_TOOLS, PermissionPolicy
 from .runner import runner_command
 
-MAX_OUTPUT = 12_000          # chars returned to the model per tool call
+MAX_OUTPUT = 12_000          # chars returned to the model per tool call; longer output is saved to disk
+BASH_TIMEOUT = 120
 MAX_WRITE = 300_000          # chars per file
 MAX_READ_LINES = 600
 SKIP_DIRS = {"__pycache__", ".git", ".agent", ".venv", "venv", "node_modules", ".pytest_cache"}
@@ -48,6 +57,9 @@ def _clip(text: str, limit: int = MAX_OUTPUT) -> str:
     return f"{head}\n... [truncated {len(text) - len(head)} chars] ...\n{text[-250:]}"
 
 
+SPILL_DIR = ".agent/tool_outputs"
+
+
 # --------------------------------------------------------------------------- schemas
 def _fn(name: str, description: str, properties: dict, required: list[str]) -> dict:
     params = {"type": "object", "properties": properties}
@@ -69,9 +81,16 @@ TOOL_SCHEMAS = [
                      "(unless replace_all is true). Include enough context to make it unique.",
         {"path": {"type": "string"}, "old_str": {"type": "string"}, "new_str": {"type": "string"},
          "replace_all": {"type": "boolean"}}, ["path", "old_str", "new_str"]),
-    _fn("search", "Regex search across workspace files. Returns path:line: text.",
+    _fn("glob_search", "Find files by name pattern, e.g. '**/*.py' or 'tests/test_*.py'.",
+        {"pattern": {"type": "string"}, "path": {"type": "string", "description": "Default '.'"}}, ["pattern"]),
+    _fn("grep_search", "Regex search inside files. Returns path:line: text.",
         {"pattern": {"type": "string"}, "path": {"type": "string", "description": "Default '.'"},
-         "glob": {"type": "string", "description": "File name filter, default '*.py'"}}, ["pattern"]),
+         "glob": {"type": "string", "description": "File name filter, default '*'"}}, ["pattern"]),
+    _fn("bash", "Run a shell command in the workspace folder (cmd.exe on Windows, sh elsewhere). "
+                "Subject to the permission mode: read-only and test commands run directly; anything "
+                "else may need the user's approval or be refused. Prefer the file tools for files.",
+        {"command": {"type": "string"},
+         "timeout": {"type": "integer", "description": "Seconds, default 120, max 600"}}, ["command"]),
     _fn("check_syntax", "Compile Python files without running them and report syntax errors.",
         {"paths": {"type": "array", "items": {"type": "string"},
                    "description": "Files to check; omit to check every .py file"}}, []),
@@ -96,10 +115,15 @@ class ToolBox:
     files_written: set = field(default_factory=set)
     test_runs: list = field(default_factory=list)
     extra: dict = field(default_factory=dict)
+    policy: PermissionPolicy | None = None
+    _spills: int = 0
 
     def __post_init__(self):
         self.root = Path(self.root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
+
+    def is_read_only(self, name: str) -> bool:
+        return name in READ_ONLY_TOOLS
 
     def schemas(self) -> list[dict]:
         return TOOL_SCHEMAS + [schema for schema, _ in self.extra.values()]
@@ -130,14 +154,32 @@ class ToolBox:
             fn = getattr(self, f"tool_{name}", None)
             if fn is None or name not in {s["function"]["name"] for s in TOOL_SCHEMAS}:
                 return ToolResult(False, f"ERROR: unknown tool {name!r}")
+        if self.policy is not None:
+            decision = self.policy.check(name, args or {})
+            if decision.verdict != "allow":
+                return ToolResult(False, f"PERMISSION DENIED ({self.policy.mode}): {decision.reason}. "
+                                         f"Choose another approach; do not retry the same action.")
         try:
-            return ToolResult(True, _clip(fn(**(args or {}))))
+            return ToolResult(True, self._spill(name, fn(**(args or {}))))
         except ToolError as e:
             return ToolResult(False, f"ERROR: {e}")
         except TypeError as e:  # wrong/missing arguments from the model
             return ToolResult(False, f"ERROR: bad arguments for {name}: {e}")
         except OSError as e:
             return ToolResult(False, f"ERROR: {type(e).__name__}: {e}")
+
+    def _spill(self, name: str, text: str) -> str:
+        """Large outputs are saved to .agent/tool_outputs/ and the model gets the start plus the
+        path, so it can read the rest on demand (as Claude Code does for very large results)."""
+        if len(text) <= MAX_OUTPUT:
+            return text
+        self._spills += 1
+        rel = f"{SPILL_DIR}/{self._spills:03d}_{name}.txt"
+        p = self.root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8")
+        return (text[: MAX_OUTPUT - 400] + f"\n... [output was {len(text)} chars; the full text is saved at "
+                f"{rel} - use read_file with start_line/end_line to see more]")
 
     # ---- tools ---------------------------------------------------------------------
     def tool_list_dir(self, path: str = ".", depth: int = 2) -> str:
@@ -215,7 +257,31 @@ class ToolBox:
                 if fnmatch.fnmatch(fn, glob):
                     yield Path(dirpath) / fn
 
-    def tool_search(self, pattern: str, path: str = ".", glob: str = "*.py") -> str:
+    def tool_glob_search(self, pattern: str, path: str = ".") -> str:
+        base = self.resolve(path)
+        pat = pattern.replace("\\", "/").lstrip("./") or "*"
+        hits = []
+        for p in sorted(base.glob(pat)):
+            parts = p.relative_to(self.root).parts
+            if any(x in SKIP_DIRS for x in parts):
+                continue
+            hits.append(self.rel(p) + ("/" if p.is_dir() else ""))
+            if len(hits) >= 200:
+                return "\n".join(hits) + "\n[stopped at 200 matches]"
+        return "\n".join(hits) if hits else "no matches"
+
+    def tool_bash(self, command: str, timeout: int | None = None) -> str:
+        t = max(1, min(int(timeout or BASH_TIMEOUT), 600))
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+        try:
+            proc = subprocess.run(command, shell=True, cwd=str(self.root), timeout=t, capture_output=True,
+                                  stdin=subprocess.DEVNULL, creationflags=flags)
+        except subprocess.TimeoutExpired:
+            return f"TIMEOUT after {t}s: {command}"
+        out = (proc.stdout or b"").decode("utf-8", "replace") + (proc.stderr or b"").decode("utf-8", "replace")
+        return f"exit code {proc.returncode}\n{out.strip() or '(no output)'}"
+
+    def tool_grep_search(self, pattern: str, path: str = ".", glob: str = "*") -> str:
         try:
             rx = re.compile(pattern)
         except re.error as e:

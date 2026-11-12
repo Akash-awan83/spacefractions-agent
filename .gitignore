@@ -12,3 +12,5 @@ practice_ws/
 practice_run*/
 practice.json
 practice_view.md
+*.db
+*.sqlite3

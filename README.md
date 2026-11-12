@@ -1,213 +1,156 @@
-# SpaceFractions Code Agent
+# Simple Code Agent
 
-A simplified, Claude-Code-style coding agent that turns **architecture documentation** into a
-**working, tested desktop application**. The underlying model is **DeepSeek `deepseek-v4-pro`**
-through the official API. The agent ships as a **double-click Windows `.exe`** with a small GUI.
+A simplified **Claude-Code-style coding agent** built by studying the three reference projects of
+Task 1, running on **DeepSeek `deepseek-v4-pro`** through the official API, and shipped as a
+**double-click Windows `.exe`** with a small GUI. Like the references, it is a **general** agent: the
+user gives it a task in natural language and any input files; it plans, reads, writes, runs commands
+under a permission system, tests and verifies its work.
 
-The inputs are the architecture artifacts that **MAAD** (Li, Zhang, Zhou, Liang et al.,
-*MAAD: Automate Software Architecture Design through Knowledge-Driven Multi-Agent Collaboration*,
-arXiv:2507.21382) produces for its running example, the **Space Fraction System (SFS)**:
-an architecture document and eleven PlantUML diagrams in the 4+1 view model.
-This agent is the stage after MAAD: **architecture → verified code**.
+For Task 1 the inputs are `Architecture_Documentation.md` and `Architecture_View.md` (the MAAD
+artifacts for the Space Fraction System) and the task is "generate the project they describe as a
+desktop application". Nothing about that project is built into the agent: the project name, the
+components and the rules the verifier checks are all derived from the input documents.
 
 ```
-Architecture_Documentation.md ─┐                      ┌─ spacefractions/ (game, question, user, admin, storage, ui)
-                               ├─ 1 Preprocess ─ JSON ─┤  main.py  tests/  README.md  DECISIONS.md
-Architecture_View.md (UML) ────┘   (no LLM)    + 20    │  traceability_matrix.csv  requirements.txt
-                                               conflicts  .agent/ transcript, cost, bug_report.json
-                                     │
-                     2 Agent loop (DeepSeek, sandboxed tools) ── 3 Verifier (final gate) ──┘
+ task (natural language) + input files ──▶ Session setup ──▶ Main loop ◀──▶ DeepSeek V4 Pro
+                                            │ context engineering    │
+                                            │ (layered prompt,       ▼
+                                            │  memory, inputs)   Tool engine ──▶ permission system ──▶ tools
+                                            │                        │           (modes, rules, Bash     read/write/edit,
+                                            ▼                        ▼            analysis, confirm)     glob/grep, bash,
+                                     compression pipeline     final verification gate                   tests, todo, verify
 ```
 
-## Demo and results
+## Built from the three references
 
-* **Windows app:** download `SpaceFractionsAgent.exe` from the
-  [v1.0 release](https://github.com/Akash-awan83/spacefractions-agent/releases/tag/v1.0) (no Python needed)
-* **Generated project from the final run:** [`sample_run/`](https://github.com/Akash-awan83/spacefractions-agent/tree/main/sample_run),
-  including the agent's logs in [`sample_run/.agent/`](https://github.com/Akash-awan83/spacefractions-agent/tree/main/sample_run/.agent)
-  (`run_summary.json`, `bug_report.json`, `transcript.jsonl`)
-  
-
-Final run on DeepSeek `deepseek-v4-pro` (official API), 4 November 2026, off-peak, started from the `.exe`:
-
-| Measure | Result |
+| Reference | What it contributed |
 | --- | --- |
-| Status | completed, all verification gates passed |
-| Token cost | **$0.115** (limit: $1.00; budget guard set to $0.95) |
-| Cache hit rate | 97.7% of input tokens |
-| Model calls | 10 |
-| Wall-clock time | 486 s (about 8 minutes) |
-| Files generated | 31 |
-| Generated unit tests | 11, all passing |
-| Final-gate rounds needed | 0 (the model ran `verify` itself before finishing; both verification rounds found no issues) |
-| Manual check | the generated Tkinter game was launched and played: intro, menu, questions with feedback, score |
+| **anthropics/claude-code** | The product idea: an agent that takes natural-language tasks, works on a codebase with tools, asks before risky actions, and reads project memory (`CLAUDE.md`). |
+| **ultraworkers/claw-code** | The harness layout (runtime: conversation loop, config, session persistence, permission policy, system-prompt assembly, usage tracking; tools crate), the tool names (`read_file`, `write_file`, `edit_file`, `glob_search`, `grep_search`, `bash`, `TodoWrite`), the three permission modes (`read-only`, `workspace-write` default, `danger-full-access`), `CLAUDE.md`/`CLAW.md`/`AGENTS.md` memory, `claw prompt "..."` and `claw doctor`, and OpenAI-compatible providers. |
+| **Windy3f3f3f3f/how-claude-code-works** | The internals: session manager → main loop → tool execution engine; context engineering (layered system prompt, memory, 4-level compression); uniform tool interface with parallel read-only tools and large results saved to disk; silent recovery ("continue" strategies); the layered permission and security model with Bash analysis and user confirmation; search-and-replace editing; observability (transcripts, cost, permission-decision log). |
 
-In this run the verifier found no issues in either round, so it caught no bugs; stating the contract in the
-prompt appears to have prevented the usual ones. The gates themselves are exercised by the test suite, which
-injects each kind of defect and checks that it is caught.
+### Mechanism by mechanism
 
-## How it works
+| Mechanism (references) | This agent | Simplified because |
+| --- | --- | --- |
+| Natural-language task as input (`claw prompt "..."`) | GUI **Task** box; `python -m agent prompt "..." --input f --out dir` | — |
+| Session manager + main loop | `pipeline.create_agent` (setup) and `loop.Agent.run` | One model call at a time |
+| Layered system prompt | `context.build_system_prompt`: identity, how to work, tools & permissions, environment (OS, date, git status), project memory, attached inputs, verification contract — built once, byte-identical on every call (provider cache) | — |
+| Project memory `CLAUDE.md` / `CLAW.md` / `AGENTS.md` | Loaded from the workspace **only if the folder is trusted** (asked once, remembered) | — |
+| Tools with one interface | `tools.ToolBox`: `read_file`, `write_file`, `edit_file`, `list_dir`, `glob_search`, `grep_search`, `bash`, `check_syntax`, `run_tests`, `todo_write`, `verify` | No web, MCP or sub-agent tools |
+| Read-only tools in parallel, writes serialized | `loop._run_calls` (thread pool, results kept in order) | — |
+| Large results saved to disk | Over 12,000 chars → `.agent/tool_outputs/…`, the model gets the start and the path | Lower threshold than Claude Code |
+| Search-and-replace editing | `edit_file` (`old_str` must match exactly once) | — |
+| Permission modes | `read-only` / **`workspace-write`** (default) / `danger-full-access` | — |
+| Rule layer | Allow / deny / ask patterns, e.g. `bash:python -m unittest*` allowed, `bash:*git push*` denied | Glob patterns |
+| Bash analysis | `permissions.analyse_bash`: tokenised, chained commands split; hard-blocks (recursive root delete, disk formatting, shutdown, fork bomb, encoded PowerShell, system settings, piping into a shell); asks for network, package installs, destructive deletes, privilege, secrets in env vars, paths outside the workspace; allows read-only and test commands | About a dozen groups of checks, not Claude Code's 23 |
+| User confirmation | GUI **Allow / Deny** dialog; `y/N` prompt in the CLI; unattended runs refuse | — |
+| Workspace isolation | Paths resolved inside the workspace; commands run in it with a timeout; generated tests in a separate process | No OS-level sandbox |
+| Compression pipeline | Snip old outputs → dedupe identical outputs → summarise older turns (last resort) → re-list recently edited files | 3 levels instead of 4 (no reversible collapse) |
+| Silent recovery | API retries with back-off; cut-off reply continued; empty reply nudged; context-overflow error → compress and retry; bad tool arguments returned to the model | — |
+| Hooks (stop hook) | **Final verification gate**: when the model finishes, the verifier runs and blocking issues go back to it (max 3 rounds) | Fixed hook, not user scripts |
+| TodoWrite / plan | `todo_write`; the GUI shows the live plan | No separate plan mode |
+| Session persistence / resume | `.agent/session.json`, `transcript.jsonl`; `--resume` lists existing files to continue | Resume restarts from the files, not the exact turn |
+| Observability | `run_summary.json` (tokens, cache hit rate, cost, peak calls), `permissions.jsonl`, `bug_report.json` | — |
+| Health check (`claw doctor`) | `python -m agent ping`, GUI **Test key** | — |
+| Streaming, sub-agents, MCP, skills, plan mode | Not implemented | Not needed for one task; the $1 budget argues against several contexts |
 
-| Stage | Module | What it does |
-|---|---|---|
-| 1. Preprocess | `agent/preprocess.py` | Parses the Markdown (tables, OpenAPI, proto, SQL, Kubernetes) and all PlantUML diagrams into one JSON. A deterministic **cross-view consistency checker** reports 20 design conflicts with evidence, root cause, the responsible MAAD role (Analyst / Modeler / Designer) and a suggested refinement, mirroring the outputs of MAAD's Evaluator agent. No tokens are spent. |
-| 2. Agent loop | `agent/loop.py`, `agent/llm.py` | The classic coding-agent loop: model → tool calls → results → repeat. Handles DeepSeek's thinking-mode contract (`reasoning_content` must be sent back during tool calls), retries, a hard **budget guard**, a step limit, cancel, context compaction and a full transcript. |
-| Tools | `agent/tools.py` | `list_dir`, `read_file`, `write_file`, `edit_file`, `search`, `check_syntax`, `run_tests`, `todo_write`, `verify`. All paths are **sandboxed** to the output folder; there is no general shell. Tests run in an **isolated process** with a timeout. |
-| 3. Verifier | `agent/verify.py` | Quality gates the model cannot skip: when it tries to finish, failures are sent back (max 3 rounds). Every issue is labelled with the bug taxonomy of *A Survey of Bugs in AI-Generated Code* (Gao, Tahir, Liang, Susnjak, Khomh, arXiv:2512.05239) and logged in `.agent/bug_report.json`, including whether the agent fixed it. |
-| GUI | `agent/gui.py` | API-key configuration, input/output selection, run/stop, live plan, activity log, **live cost meter**, and a button that plays the generated game. |
+## Task-1 specifics, derived from the inputs
 
-### What was taken from the reference implementations
+When the inputs are an architecture document plus PlantUML views, the agent preprocesses them **without
+an LLM** (`preprocess.py`): Markdown tables, OpenAPI, proto, SQL, Kubernetes and 13 diagrams become one
+JSON, and **20 cross-view inconsistencies** are reported with evidence, root cause and the responsible
+MAAD role (MAAD: Li, Zhang, Zhou, Liang et al., arXiv:2507.21382). The verifier's **contract is derived**
+from that JSON (`verify.derive_contract`): root package from the project name, one package per component
+in the component diagram, `DECISIONS.md` when there are conflicts, a traceability matrix when there are
+requirements, and the desktop gate when the target is `desktop`. With other inputs, other rules follow;
+with no inputs, only the general gates apply.
 
-The task names three references: Anthropic's **claude-code**, **how-claude-code-works**
-(Windy3f3f3f3f; a chapter-by-chapter analysis of Claude Code's architecture, with the companion
-*claude-code-from-scratch* re-implementation) and **claw-code** (ultraworkers; a Rust re-implementation
-of the claw agent harness that also supports OpenAI-compatible providers). The table maps each mechanism
-described there to this agent, and states what was simplified.
+### Verification gates
 
-| Mechanism (as described in the references) | This agent | Simplification and why |
-|---|---|---|
-| Core query loop: call the model → execute tool calls → feed results back → repeat until no tool call | `loop.py` (`Agent.run`) | Same loop, one model call at a time |
-| Tool system (read, edit, write, search, shell, todo, …) | `tools.py`: 8 tools + `verify` | No general shell: the only executable action is running the generated unit tests in an isolated process |
-| Permission system (rule layer, shell-command analysis, user confirmation) | Path sandbox (no `..`, absolute paths or reserved folders), no shell, security gate in the verifier | No interactive confirmation: the run is unattended, so the policy is "deny by construction" |
-| Context engineering (system prompt, project instructions such as CLAUDE.md) | One stable system prompt: instructions + architecture JSON + the verifier contract | Kept byte-identical for DeepSeek's prefix cache; the generated project gets its own `AGENTS.md` |
-| Context compaction pipeline | `Agent._compact`: elides old tool outputs above a token threshold | One layer instead of several; runs are short |
-| Hooks that run when the agent tries to stop | Final verification gate: blocking issues are sent back (max 3 rounds) | Fixed, built-in gate instead of user-configurable hooks |
-| Todo list / plan mode | `todo_write` tool and a PLAN phase; the GUI shows the live plan | Planning is a phase inside the same loop, not a separate read-only mode |
-| Sub-agents / multi-agent | Not used; the phases PLAN → INTERFACES → IMPLEMENT → TEST → DOCUMENT → VERIFY run in one loop | One context is cheaper than several (the $1 budget) |
-| Streaming output and early tool execution | Not used; the GUI reports each step, its tokens and its cost | Simpler, and every step is logged |
-| Session persistence | `.agent/transcript.jsonl`, `run_summary.json`, `bug_report.json` | Logs for review, no resume |
-| Provider abstraction and a health check (claw-code: OpenAI-compatible providers, `claw doctor`) | `make_client` with DeepSeek (default) plus free testing providers; `python -m agent ping` / **Test key** | Only OpenAI-compatible Chat Completions |
-| MCP servers, memory, skills | Not implemented | Outside the scope of a single generation task |
-
-### Quality gates (the verifier)
-
-| Gate | Taxonomy category |
-|---|---|
+| Gate | Category (bug taxonomy of *A Survey of Bugs in AI-Generated Code*, arXiv:2512.05239) |
+| --- | --- |
 | Every file parses | Syntax |
-| Every import is stdlib or exists in the project; every `from x import y` name really exists in `x` | Hallucination |
-| Unit tests pass (isolated process); failures classified from their traceback | Functional / Hallucination / System / Reliability |
-| Component packages from the component diagram exist; domain packages never import the UI layer | Design conformance |
-| Desktop only: the UI package uses Tkinter, no web framework or server is imported, `main.py` starts the package | Design conformance |
-| No `eval`/`exec`/`subprocess`/`os.system`; SQL never built from strings | Security |
+| Every import exists (stdlib or project); `from x import y` really defines `y` | Hallucination |
+| Unit tests pass in an isolated process; failures classified from the traceback | Functional / Hallucination / System / Reliability |
+| Component packages exist; component packages do not import the UI or tkinter | Design conformance |
+| Desktop target: tkinter UI, no web frameworks, `main.py` starts the package | Design conformance |
+| No `eval` / `exec` / `subprocess` / `os.system`; SQL never built from strings | Security |
 | AI-generated-code header in every file | Code style & standards |
-| `DECISIONS.md` addresses every conflict id; `traceability_matrix.csv` covers every requirement and points only to existing files; required deliverables exist (README, requirements.txt, Dockerfile, AGENTS.md, tests) | Traceability & documentation |
-
-### How the design draws on the group's research
-
-| Paper | Used for |
-|---|---|
-| MAAD (arXiv:2503.20536, 2507.21382) and *Bridging Requirements and Architecture* | Input format (SFS, 4+1 views); conflict reports in the style of the MAAD Evaluator |
-| *A Survey of Bugs in AI-Generated Code* | Verifier taxonomy; hybrid mitigation (LLM + program analysis + feedback loop) |
-| *CodeTeam* (repository-level generation) | Interface-first workflow; cross-file name checks |
-| *Beyond Functional Correctness: Design Issues in AI IDE-Generated Projects* | Design-conformance gate (component packages, layering) |
-| *Using LLMs in Generating Design Rationale* | `DECISIONS.md` with decision, rationale and alternatives per conflict |
-| Traceability-link papers (HGNNLink, NL-PL TLR) | `traceability_matrix.csv` requirement → code → test, verified |
-| *On Developers' Self-Declaration of AI-Generated Code* | AI-generated header in every generated file |
-| *Rule Taxonomy and Evolution in AI IDEs* | Generated `AGENTS.md` with the project's rules for future AI tools |
-
-## Cost
-
-Prices follow the official DeepSeek page (checked 2026-11-04): for `deepseek-v4-pro`, per 1M tokens,
-cache-hit input $0.022, cache-miss input $0.66 and output $1.98 off-peak; **peak hours cost double**
-(Mon-Fri 01:00-04:00 and 06:00-10:00 UTC; weekends are off-peak). Every call is priced at the moment it
-is made, and older saved configs are upgraded to these prices automatically.
-
-* The system prompt (instructions + architecture JSON, about 8k tokens) is **byte-identical on every call**,
-  so it is billed at the cache-hit rate.
-* The **budget guard** (default $0.90, capped at $1.00) starts a new call only if the spend so far plus the
-  most expensive call so far stays under the budget, so a run cannot cross it.
-* Starting a DeepSeek run in peak hours asks for confirmation first.
-* Each run writes its tokens, cache hit rate, peak calls and cost to `.agent/run_summary.json`.
-
-## Free testing providers (development only)
-
-The task requires DeepSeek, and the demo, the cost evidence and the submitted output come from DeepSeek.
-To test the agent without spending money during development, the provider can be switched to
-**Google Gemini (free tier)** or **OpenRouter (free models)** in the GUI or with `--provider`:
-
-```bat
-python -m agent set-key --provider gemini
-python -m agent ping --provider gemini
-python -m agent run --provider gemini --out C:\path\to\test_folder
-```
-
-DeepSeek-only parameters are not sent to these providers. Such runs are labelled in the GUI, the CLI and
-`.agent/run_summary.json` (`meta.provider`, `meta.note`) so they cannot be mistaken for the DeepSeek run.
+| Required files; `DECISIONS.md` covers every conflict; traceability covers every requirement | Traceability & documentation |
 
 ## Use the .exe (Windows, no Python needed)
 
-1. Download `SpaceFractionsAgent.exe` (Releases, or the latest *Actions* run artifact).
-2. Double-click it. If Windows SmartScreen appears: *More info → Run anyway* (the file is unsigned).
-3. Paste your DeepSeek API key → **Save** → **Test key**.
-4. The sample inputs are pre-selected; choose an empty **Output folder**.
-5. **Check inputs** (shows the 20 conflicts) → **Run agent**.
-6. When the status shows *Completed*, click **Play generated game**.
+1. Download `app/CodeAgent.exe` and double-click it (SmartScreen: *More info → Run anyway*).
+2. Paste the DeepSeek API key → **Save** → **Test key**.
+3. The **Task** box holds the Task-1 instruction and the two sample inputs are listed; change either freely.
+4. Choose an empty **Output folder**, keep **workspace-write**, press **Check inputs**, then **Run agent**.
+5. Answer **Allow / Deny** if the agent asks to run a command. **Play generated game** runs `main.py`.
 
-The same `.exe` also runs the generated tests and the generated game, so no Python installation is required.
+The same exe runs the generated tests (`--run-tests`) and the generated program (`--run-script`).
 
-## Run from source
+## Command line
+
+```bat
+python -m agent set-key
+python -m agent ping
+python -m agent prompt "Add input validation to calc.py and write tests" --input calc.py --out C:\work\calc
+python -m agent run --out C:\work\sfs        & rem default Task-1 task with the bundled inputs
+python -m agent gui
+```
+
+Options: `--mode read-only|workspace-write|danger-full-access`, `--target desktop|any`, `--no-verify`,
+`--yes-deny` (unattended: refuse anything that needs approval), `--budget`, `--max-steps`, `--resume`.
+
+## Cost and budget
+
+Prices follow DeepSeek's official page (checked 2026-11-04) for `deepseek-v4-pro`, per 1M tokens: cache-hit
+input $0.022, cache-miss input $0.66, output $1.98 off-peak, **double in peak hours** (Mon–Fri 01:00–04:00
+and 06:00–10:00 UTC). Each call is priced at the moment it is made. The budget guard (default $0.90, at most
+$1.00) starts a call only if the spend so far plus the most expensive call so far stays under the budget;
+a peak-hour start asks first.
+
+## Results
+
+**Version 1 run (4 November 2026, before the generalisation):** completed in 10 calls, 8 minutes,
+**$0.115**, 97.7% cache hit rate, 31 files, 11 passing tests, all gates passed; the generated Tkinter game
+was played. Its output and logs are in [`sample_run/`](sample_run/).
+
+**Version 2 run:** to be added after the rebuild (the same task, given to the general agent).
+
+## Run from source and tests
 
 ```bat
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements-dev.txt
-python -m pytest -q                       & rem 113 tests, no API key needed (a fake model is used)
-python -m agent gui                       & rem the desktop window
-python -m agent set-key                   & rem or use the CLI
-python -m agent ping
-python -m agent run --out C:\path\to\empty\folder
-python -m agent run --out C:\same\folder --resume   & rem continue an interrupted run
+python -m pytest -q          & rem 172 tests, no network, a fake model drives the agent
+build_exe.bat                & rem builds dist\CodeAgent.exe
 ```
 
-If a run stops early (quota, network, the Stop button), running again on the same folder **resumes** it:
-the first message lists the files already written and the model continues from there.
+The tests include a **generality check**: the agent's source may not mention the Space Fraction System,
+and a different architecture (a "Library Manager") yields a different contract.
 
-Build the `.exe`: double-click `build_exe.bat` (result: `dist\SpaceFractionsAgent.exe`).
-GitHub Actions (`.github/workflows/build-windows-exe.yml`) builds and smoke-tests it on every push.
+## Limitations
 
-## Configuration and safety
-
-* Settings, including the API keys, are stored in `%APPDATA%\SpaceFractionsAgent\config.json`, outside the
-  repository. `DEEPSEEK_API_KEY` (or `GEMINI_API_KEY`, `OPENROUTER_API_KEY`) overrides the stored key.
-* The model can only touch files inside the chosen output folder. It cannot run shell commands; the only
-  code it can execute is the generated unit tests, in a separate process with a timeout.
+* The verifier's code checks are for **Python** projects; for other languages only the documentation
+  gates apply, and the model has to run the tests through `bash`.
+* Bash analysis is static and simplified (about a dozen groups of checks); `danger-full-access` trusts the model.
+* Compression has 3 levels; resume restarts from the files on disk, not from the exact turn.
+* No streaming, sub-agents, MCP, skills or plan mode.
+* The verifier cannot judge whether a program is pleasant to use, and tests are written by the same model.
+* One run per version; model output varies between runs.
+* Built with the help of an AI coding assistant; the design decisions, Windows testing and runs were done
+  and checked by the author.
 
 ## Repository layout
 
 ```
-agent/            the code agent (preprocess, llm, loop, tools, verify, runner, gui, prompts, config)
-inputs/           the two MAAD artifacts for SFS
-sample_run/       the project the agent generated in the final DeepSeek run, with its .agent/ logs
-practice/         a small script that shows the verifier catching planted defects
-tests/            113 tests (no network): parsers, client, providers, tools, loop, verifier, GUI
-sf_agent_app.py   .exe entry point (GUI, --run-tests, --run-script)
-build_exe.bat     local Windows build
+agent/            context.py, loop.py, tools.py, permissions.py, verify.py, preprocess.py, llm.py,
+                  pipeline.py, gui.py, runner.py, config.py, events.py, __main__.py
+inputs/           the two MAAD artifacts for SFS (the Task-1 inputs)
+sample_run/       output and logs of the final run
+tests/            172 tests
+code_agent_app.py .exe entry point
+build_exe.bat     local Windows build;  .github/workflows builds and smoke-tests the exe on every push
 ```
-
-## Limitations
-
-Stated plainly, so they can be weighed against the results above.
-
-* **Generality.** The engine (loop, tools, sandbox, LLM client, budget guard, verifier mechanics, GUI, exe)
-  is generic. The verification *contract* is configured for SFS: the package names (`spacefractions/game`,
-  `question`, `user`, `admin`, `storage`, `ui`) and the screens described in the prompt are fixed in code.
-  Another architecture document would be parsed, but the gates would still expect the SFS packages.
-  Next step: derive the packages from the component diagram and the screens from the use cases.
-* **What the verifier cannot judge.** It checks what can be checked deterministically: syntax, imports,
-  layering, desktop-only UI, security patterns, headers, documentation, traceability and tests. It cannot
-  judge whether the game is pleasant to play or whether the layout fits the window; a person has to play it.
-* **Tests written by the same model.** A misunderstood requirement can produce a wrong test that passes.
-  "At least 8 tests" is a count, not coverage.
-* **Static checks have blind spots.** A call to a method that does not exist on an object is caught only if a
-  test executes it; dynamic and star imports are not checked; the SQL check catches queries built directly
-  in `execute(...)` with f-strings, `format` or `+`, not queries assembled earlier in a variable.
-* **Bug categories are heuristic.** Test failures are classified by patterns in the traceback.
-* **Conflict rules fit MAAD's SFS artifacts.** Documents in another format may need new rules.
-* **One run.** The results above come from a single run; model output varies, and no statistics over
-  repeated runs were collected.
-* **Simplifications versus Claude Code.** No shell tool, single-layer compaction, no streaming, no
-  sub-agents, no MCP (see the comparison table above for the reasons).
-* **Prices.** Costs use DeepSeek's published prices as checked on 4 November 2026, including peak hours; the
-  price table in the config file must be updated if DeepSeek changes them.
-* **Development note.** The project was built with the help of an AI coding assistant; the design decisions,
-  testing on Windows and the runs were done and checked by the author.

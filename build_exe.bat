@@ -1,5 +1,5 @@
 @echo off
-REM Builds dist\SpaceFractionsAgent.exe  (run from the project folder on Windows)
+REM Builds dist\CodeAgent.exe  (run from the project folder on Windows)
 setlocal
 cd /d "%~dp0"
 
@@ -17,13 +17,13 @@ python -m pytest -q || goto :error
 
 echo Building the .exe ...
 pyinstaller --noconfirm --clean --onefile --windowed ^
-    --name SpaceFractionsAgent ^
+    --name CodeAgent ^
     --add-data "inputs;inputs" ^
     --hidden-import agent._bundle ^
-    sf_agent_app.py || goto :error
+    code_agent_app.py || goto :error
 
 echo.
-echo SUCCESS: dist\SpaceFractionsAgent.exe
+echo SUCCESS: dist\CodeAgent.exe
 exit /b 0
 
 :error

@@ -2,9 +2,12 @@
 
 Sections, matching the task brief:
   1. DeepSeek API key configuration (hidden entry, save, test)
-  2. Input file selection (architecture documentation + views) and output directory
+  2. The task (any natural-language instruction), input-file selection (any number of files),
+     output directory, permission mode, target and the verification gate
   3. Task triggering (Check inputs, Run agent, Stop) with a live plan, log and cost meter
-  4. Running the generated game
+  4. Permission requests: when the agent wants to run a command that needs approval, a dialog
+     asks the user (Allow / Deny), as in Claude Code
+  5. Running the generated program
 
 Threading: the agent runs in a background thread and never touches widgets. It
 puts events on a queue; the Tk thread drains the queue every 100 ms (_poll).
@@ -26,9 +29,11 @@ from .config import (PROVIDERS, config_dir, load_config, make_client, mask_key, 
                      resolve_model, resolve_pricing, save_config, set_api_key, set_model)
 from .events import format_event
 from .llm import PEAK_WARNING, CostTracker, LLMError, is_peak
-from .pipeline import create_agent, prepare, task_for
+from .context import DEFAULT_TASK
+from .permissions import MODES
+from .pipeline import create_agent, read_inputs, task_for
 
-APP_TITLE = "SpaceFractions Code Agent"
+APP_TITLE = "Simple Code Agent"
 STATUS_TEXT = {"completed": "Completed", "completed_with_issues": "Finished with open issues", "budget_exhausted": "Stopped: budget reached",
                "max_steps": "Stopped: step limit reached", "cancelled": "Stopped by user", "error": "Error"}
 
@@ -60,7 +65,7 @@ def sample_inputs() -> tuple[Path, Path]:
 
 def default_output() -> Path:
     desktop = Path.home() / "Desktop"
-    return (desktop if desktop.is_dir() else Path.home()) / "SpaceFractions_Output"
+    return (desktop if desktop.is_dir() else Path.home()) / "CodeAgent_Output"
 
 
 class AgentApp:
@@ -95,7 +100,7 @@ class AgentApp:
         top = ttk.Frame(r, padding=(12, 10, 12, 4))
         top.pack(fill="x")
         ttk.Label(top, text=APP_TITLE, style="Title.TLabel").pack(anchor="w")
-        ttk.Label(top, text="MAAD architecture documents  ->  verified desktop code, powered by DeepSeek",
+        ttk.Label(top, text="A Claude-Code-style coding agent on DeepSeek: give it a task and input files",
                   style="Sub.TLabel").pack(anchor="w")
 
         # 1. API settings
@@ -138,18 +143,35 @@ class AgentApp:
         ttk.Spinbox(lim, from_=5, to=200, increment=5, textvariable=self.steps_var, width=6).pack(side="left", padx=2)
         api.columnconfigure(1, weight=1)
 
-        # 2. Inputs / output
-        io = ttk.LabelFrame(r, text=" 2. Inputs and output ", padding=8)
+        # 2. Task, inputs, output, permissions
+        io = ttk.LabelFrame(r, text=" 2. Task, inputs and output ", padding=8)
         io.pack(fill="x", padx=12, pady=4)
-        self.doc_var, self.views_var, self.out_var = tk.StringVar(), tk.StringVar(), tk.StringVar()
-        rows = [("Architecture documentation (.md)", self.doc_var, self._pick_doc),
-                ("Architecture views / UML (.md)", self.views_var, self._pick_views),
-                ("Output folder", self.out_var, self._pick_out)]
-        for i, (label, var, cmd) in enumerate(rows):
-            ttk.Label(io, text=label).grid(row=i, column=0, sticky="w", pady=2)
-            ttk.Entry(io, textvariable=var).grid(row=i, column=1, sticky="we", padx=6, pady=2)
-            ttk.Button(io, text="Browse...", command=cmd).grid(row=i, column=2, pady=2)
-        ttk.Button(io, text="Open folder", command=self.open_output).grid(row=2, column=3, padx=3)
+        ttk.Label(io, text="Task").grid(row=0, column=0, sticky="nw", pady=2)
+        self.task_text = tk.Text(io, height=3, wrap="word", font=("Segoe UI", 9))
+        self.task_text.grid(row=0, column=1, columnspan=3, sticky="we", padx=6, pady=2)
+        ttk.Button(io, text="Default task", command=lambda: self._set_task(DEFAULT_TASK)).grid(row=0, column=4, sticky="n")
+        ttk.Label(io, text="Input files").grid(row=1, column=0, sticky="nw", pady=2)
+        self.inputs_list = tk.Listbox(io, height=3, selectmode="extended")
+        self.inputs_list.grid(row=1, column=1, columnspan=3, sticky="we", padx=6, pady=2)
+        btns = ttk.Frame(io)
+        btns.grid(row=1, column=4, sticky="n")
+        ttk.Button(btns, text="Add files...", command=self._add_inputs).pack(fill="x")
+        ttk.Button(btns, text="Remove", command=self._remove_inputs).pack(fill="x", pady=(2, 0))
+        self.out_var = tk.StringVar()
+        ttk.Label(io, text="Output folder").grid(row=2, column=0, sticky="w", pady=2)
+        ttk.Entry(io, textvariable=self.out_var).grid(row=2, column=1, columnspan=2, sticky="we", padx=6, pady=2)
+        ttk.Button(io, text="Browse...", command=self._pick_out).grid(row=2, column=3, pady=2)
+        ttk.Button(io, text="Open folder", command=self.open_output).grid(row=2, column=4, padx=3)
+        opts = ttk.Frame(io)
+        opts.grid(row=3, column=1, columnspan=4, sticky="w", padx=6, pady=(4, 0))
+        ttk.Label(opts, text="Permission mode").pack(side="left")
+        self.mode_var = tk.StringVar()
+        ttk.Combobox(opts, textvariable=self.mode_var, values=list(MODES), state="readonly", width=20).pack(side="left", padx=(4, 14))
+        ttk.Label(opts, text="Target").pack(side="left")
+        self.target_var = tk.StringVar()
+        ttk.Combobox(opts, textvariable=self.target_var, values=["desktop", "any"], state="readonly", width=9).pack(side="left", padx=(4, 14))
+        self.verify_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(opts, text="Verify before finishing (final gate)", variable=self.verify_var).pack(side="left")
         io.columnconfigure(1, weight=1)
 
         # 3. Actions
@@ -203,11 +225,15 @@ class AgentApp:
         self._update_provider_note()
         self.budget_var.set(f"{float(c['budget_usd']):.2f}")
         self.steps_var.set(str(c["max_steps"]))
-        sample_doc, sample_views = sample_inputs()
-        self.doc_var.set(c["last_doc"] if c["last_doc"] and Path(c["last_doc"]).is_file()
-                         else (str(sample_doc) if sample_doc.is_file() else ""))
-        self.views_var.set(c["last_views"] if c["last_views"] and Path(c["last_views"]).is_file()
-                           else (str(sample_views) if sample_views.is_file() else ""))
+        last = [p for p in c.get("last_inputs", []) if Path(p).is_file()]
+        if not last:
+            last = [str(p) for p in sample_inputs() if Path(p).is_file()]
+        for p in last:
+            self.inputs_list.insert("end", p)
+        self._set_task(c.get("last_task") or DEFAULT_TASK)
+        self.mode_var.set(c.get("permission_mode", "workspace-write"))
+        self.target_var.set(c.get("target", "desktop"))
+        self.verify_var.set(bool(c.get("verify_before_finish", True)))
         self.out_var.set(c["last_output"] or str(default_output()))
         self._update_key_status()
 
@@ -271,8 +297,12 @@ class AgentApp:
             cfg["max_steps"] = max(1, int(float(self.steps_var.get())))
         except ValueError:
             raise ValueError("Budget and max steps must be numbers.")
-        cfg["last_doc"], cfg["last_views"], cfg["last_output"] = (
-            self.doc_var.get().strip(), self.views_var.get().strip(), self.out_var.get().strip())
+        cfg["last_inputs"] = list(self.inputs_list.get(0, "end"))
+        cfg["last_task"] = self.task_text.get("1.0", "end").strip()
+        cfg["last_output"] = self.out_var.get().strip()
+        cfg["permission_mode"] = self.mode_var.get() or "workspace-write"
+        cfg["target"] = self.target_var.get() or "desktop"
+        cfg["verify_before_finish"] = bool(self.verify_var.get())
         return cfg
 
     def save_settings(self, quiet: bool = False) -> bool:
@@ -287,15 +317,18 @@ class AgentApp:
             self._log("Settings saved (the key is stored in your user profile, not in the project).")
         return True
 
-    def _pick_doc(self):
-        p = filedialog.askopenfilename(title="Architecture documentation", filetypes=[("Markdown", "*.md"), ("All", "*.*")])
-        if p:
-            self.doc_var.set(p)
+    def _set_task(self, text: str):
+        self.task_text.delete("1.0", "end")
+        self.task_text.insert("1.0", text)
 
-    def _pick_views(self):
-        p = filedialog.askopenfilename(title="Architecture views", filetypes=[("Markdown", "*.md"), ("All", "*.*")])
-        if p:
-            self.views_var.set(p)
+    def _add_inputs(self):
+        for p in filedialog.askopenfilenames(title="Input files"):
+            if p not in self.inputs_list.get(0, "end"):
+                self.inputs_list.insert("end", p)
+
+    def _remove_inputs(self):
+        for i in reversed(self.inputs_list.curselection()):
+            self.inputs_list.delete(i)
 
     def _pick_out(self):
         p = filedialog.askdirectory(title="Output folder")
@@ -341,35 +374,43 @@ class AgentApp:
         self._ping_thread = threading.Thread(target=work, daemon=True)
         self._ping_thread.start()
 
-    def _validate_inputs(self) -> tuple[Path, Path, Path] | None:
-        doc, views, out = (Path(v.get().strip()) for v in (self.doc_var, self.views_var, self.out_var))
-        if not doc.is_file():
-            self._message("error", APP_TITLE, "Select the architecture documentation file (.md).")
+    def _validate_inputs(self) -> tuple[list[Path], Path] | None:
+        inputs = [Path(p) for p in self.inputs_list.get(0, "end")]
+        missing = [str(p) for p in inputs if not p.is_file()]
+        if missing:
+            self._message("error", APP_TITLE, "These input files do not exist:\n" + "\n".join(missing))
             return None
-        if not views.is_file():
-            self._message("error", APP_TITLE, "Select the architecture views file (.md).")
-            return None
+        out = Path(self.out_var.get().strip())
         if not str(out) or str(out) == ".":
             self._message("error", APP_TITLE, "Choose an output folder.")
             return None
-        return doc, views, out
+        if not self.task_text.get("1.0", "end").strip():
+            self._message("error", APP_TITLE, "Write the task for the agent (or press Default task).")
+            return None
+        return inputs, out
 
     def check_inputs(self):
         paths = self._validate_inputs()
         if not paths:
             return
+        inputs, out = paths
         try:
-            arch = prepare(*paths)
+            arch, raw = read_inputs(inputs, out, self.target_var.get() or "desktop")
         except Exception as e:  # noqa: BLE001 - show any parse failure to the user
             self._message("error", APP_TITLE, f"Could not parse the inputs:\n{e}")
             return
-        sev = {s: sum(c["severity"] == s for c in arch["conflicts"]) for s in ("high", "medium", "low")}
-        self._log(f"[check] {arch['project']['name']}: {len(arch['requirements'])} requirements, "
-                  f"{arch['views']['count']} diagrams, {len(arch['conflicts'])} conflicts "
-                  f"(high {sev['high']}, medium {sev['medium']}, low {sev['low']})", "step")
-        for c in arch["conflicts"]:
-            self._log(f"   {c['id']} [{c['severity']}] {c['finding'][:150]}")
-        self._log(f"   saved to {paths[2] / '.agent' / 'architecture.json'}")
+        if arch:
+            sev = {s_: sum(c["severity"] == s_ for c in arch["conflicts"]) for s_ in ("high", "medium", "low")}
+            self._log(f"[check] architecture input: {arch['project']['name']}: {len(arch['requirements'])} "
+                      f"requirements, {arch['views']['count']} diagrams, {len(arch['conflicts'])} conflicts "
+                      f"(high {sev['high']}, medium {sev['medium']}, low {sev['low']})", "step")
+            for c in arch["conflicts"]:
+                self._log(f"   {c['id']} [{c['severity']}] {c['finding'][:220]}")
+            self._log(f"   saved to {out / '.agent' / 'architecture.json'}")
+        for name, text in raw:
+            self._log(f"[check] attached as text: {name} ({len(text)} chars)", "step")
+        if not arch and not raw:
+            self._log("[check] no input files: the agent works from the task text only.", "step")
 
     def start_run(self, confirm: bool = True):
         if self.worker and self.worker.is_alive():
@@ -385,10 +426,10 @@ class AgentApp:
         paths = self._validate_inputs()
         if not paths:
             return
-        out = paths[2]
+        inputs, out = paths
         if confirm and out.is_dir() and any(p.name != ".agent" for p in out.iterdir()):
-            if not self._message("ask", APP_TITLE, f"{out}\nalready contains files.\n\nYes = continue (resume) the "
-                                                   f"earlier run in this folder.\nNo = cancel and choose an empty folder."):
+            if not self._message("ask", APP_TITLE, f"{out}\nalready contains files.\n\nYes = continue (resume) "
+                                                   f"in this folder.\nNo = cancel and choose an empty folder."):
                 return
         if confirm and provider_of(self.cfg) == "deepseek" and is_peak(resolve_pricing(self.cfg)):
             if not self._message("ask", APP_TITLE, PEAK_WARNING + "\n\nStart anyway at double price?"):
@@ -401,25 +442,36 @@ class AgentApp:
         p = provider_of(self.cfg)
         if p != "deepseek":
             self._log("NOTE: free testing provider - this run does NOT count as the DeepSeek run.", "err")
-        self._log(f"=== Run: {p}:{resolve_model(self.cfg)} | budget ${self.cfg['budget_usd']:.2f} | "
-                  f"max {self.cfg['max_steps']} steps | output {out}", "step")
+        self._log(f"=== Run: {p}:{resolve_model(self.cfg)} | mode {self.cfg['permission_mode']} | "
+                  f"budget ${self.cfg['budget_usd']:.2f} | max {self.cfg['max_steps']} steps | output {out}", "step")
         cfg = dict(self.cfg)
-        self.worker = threading.Thread(target=self._work, args=(cfg, *paths), daemon=True)
+        task = self.task_text.get("1.0", "end").strip()
+        self.worker = threading.Thread(target=self._work, args=(cfg, inputs, out, task), daemon=True)
         self.worker.start()
 
-    def _work(self, cfg, doc, views, out):
+    def _work(self, cfg, inputs, out, task):
         try:
-            task = task_for(out)
-            if "RESUME:" in task:
+            message = task_for(out, task)
+            if "RESUME:" in message:
                 self.events.put(("note", {"text": "Existing files found - the agent will continue the earlier run."}))
-            arch = prepare(doc, views, out)
-            self.events.put(("preprocessed", {"conflicts": len(arch["conflicts"]), "diagrams": arch["views"]["count"]}))
-            self.agent = create_agent(cfg, arch, out, on_event=lambda k, d: self.events.put((k, d)),
-                                      llm=self.llm_override)
-            result = self.agent.run(task)
+            self.agent, _arch = create_agent(cfg, out, inputs=inputs, on_event=lambda k, d: self.events.put((k, d)),
+                                             llm=self.llm_override, confirm=self._confirm_from_worker)
+            self.agent.meta["task"] = task[:500]
+            if cfg.get("trusted_folders") != self.cfg.get("trusted_folders"):
+                self.events.put(("save_trust", {"folders": list(cfg.get("trusted_folders", []))}))
+            result = self.agent.run(message)
             self.events.put(("result", {"result": result}))
         except Exception as e:  # noqa: BLE001 - report everything, never crash the window
             self.events.put(("fatal", {"message": f"{type(e).__name__}: {e}"}))
+
+    def _confirm_from_worker(self, tool: str, reason: str, args: dict) -> bool:
+        """Called from the agent thread: ask the user on the Tk thread and wait for the answer."""
+        done, answer = threading.Event(), [False]
+        self.events.put(("confirm", {"tool": tool, "reason": reason, "args": args, "done": done, "answer": answer}))
+        while not done.wait(0.2):
+            if self.agent is not None and self.agent.cancel_flag.is_set():
+                return False
+        return answer[0]
 
     def stop_run(self):
         if self.agent:
@@ -448,6 +500,23 @@ class AgentApp:
         self.root.after(100, self._poll)
 
     def _handle(self, kind: str, data: dict):
+        if kind == "confirm":
+            subject = data["args"].get("command") or data["args"].get("path") or ""
+            if data["tool"] == "trust_folder":
+                text = data["reason"]
+            else:
+                text = (f"The agent wants to use {data['tool']}:\n\n{subject}\n\nWhy it needs approval: "
+                        f"{data['reason']}\n\nAllow it?")
+            ok = bool(self._message("ask", APP_TITLE + " - permission", text))
+            self._log(f"[permission] {data['tool']} {subject[:120]} -> {'ALLOWED' if ok else 'DENIED'} by user",
+                      None if ok else "err")
+            data["answer"][0] = ok
+            data["done"].set()
+            return
+        if kind == "save_trust":
+            self.cfg["trusted_folders"] = data["folders"]
+            save_config(self.cfg, self.cfg_path)
+            return
         if kind == "note":
             self._log(data["text"], "step")
             return

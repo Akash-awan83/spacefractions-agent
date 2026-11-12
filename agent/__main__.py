@@ -107,9 +107,26 @@ def cmd_ping(args) -> int:
     return 0
 
 
+def _cli_confirm(tool: str, reason: str, args: dict) -> bool:
+    """User confirmation in the terminal (the GUI shows a dialog instead)."""
+    subject = args.get("command") or args.get("path") or ""
+    _ticker.stop()
+    print(f"\n  PERMISSION NEEDED for {tool}: {subject}\n  reason: {reason}")
+    try:
+        return input("  Allow? [y/N] ").strip().lower() == "y"
+    except EOFError:
+        return False
+
+
 def cmd_run(args) -> int:
     from .pipeline import run_pipeline
     cfg = load_config()
+    if getattr(args, "mode", None):
+        cfg["permission_mode"] = args.mode
+    if getattr(args, "no_verify", False):
+        cfg["verify_before_finish"] = False
+    if getattr(args, "target", None):
+        cfg["target"] = args.target
     if args.budget is not None:
         cfg["budget_usd"] = args.budget
     if args.max_steps is not None:
@@ -134,9 +151,14 @@ def cmd_run(args) -> int:
               f"  --resume  continue the earlier (interrupted) run in this folder\n"
               f"  or choose an empty folder.")
         return 1
-    print(f"Running {p}:{resolve_model(cfg)} | budget ${cfg['budget_usd']:.2f} | max {cfg['max_steps']} steps | out {out}")
+    inputs = [Path(x) for x in (args.input or [])] or [Path(args.doc), Path(args.views)]
+    task = getattr(args, "task", None)
+    print(f"Running {p}:{resolve_model(cfg)} | mode {cfg['permission_mode']} | budget ${cfg['budget_usd']:.2f} "
+          f"| max {cfg['max_steps']} steps | out {out}")
+    print(f"Task: {(task or 'default: generate the project from the architecture documents')[:160]}")
     try:
-        result = run_pipeline(cfg, Path(args.doc), Path(args.views), out, on_event=_print_event)
+        result = run_pipeline(cfg, inputs, out, task=task, on_event=_print_event,
+                              confirm=None if args.yes_deny else _cli_confirm)
     except KeyboardInterrupt:
         _ticker.stop()
         print("\nInterrupted.")
@@ -166,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
     if argv[:1] == ["--run-script"]:
         from .runner import run_script
         return run_script(argv[1])
-    ap = argparse.ArgumentParser(prog="python -m agent", description="SpaceFractions Code Agent")
+    ap = argparse.ArgumentParser(prog="python -m agent", description="Simple Code Agent (Claude-Code-style, DeepSeek)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     providers = list(PROVIDERS)
     k = sub.add_parser("set-key", help="store an API key (DeepSeek by default)")
@@ -174,17 +196,28 @@ def main(argv: list[str] | None = None) -> int:
     pg = sub.add_parser("ping", help="test the API key with one tiny call")
     pg.add_argument("--provider", choices=providers)
     pg.add_argument("--model")
-    r = sub.add_parser("run", help="generate the project")
-    r.add_argument("--provider", choices=providers, help="deepseek (default) or a free provider for testing")
-    r.add_argument("--model")
-    r.add_argument("--doc", default=str(DEFAULT_DOC))
-    r.add_argument("--views", default=str(DEFAULT_VIEWS))
-    r.add_argument("--out", required=True)
-    r.add_argument("--budget", type=float)
-    r.add_argument("--max-steps", type=int)
-    r.add_argument("--resume", action="store_true", help="continue an interrupted run in the same folder")
-    r.add_argument("--allow-peak", action="store_true", help="start even during DeepSeek peak hours (double price)")
-    r.add_argument("--force", action="store_true", help=argparse.SUPPRESS)
+    def add_run_args(r, with_task: bool):
+        if with_task:
+            r.add_argument("task", help="what the agent should do, in natural language")
+        r.add_argument("--input", action="append", help="input file (repeat for several)")
+        r.add_argument("--provider", choices=providers, help="deepseek (default) or a free provider for testing")
+        r.add_argument("--model")
+        r.add_argument("--doc", default=str(DEFAULT_DOC), help=argparse.SUPPRESS)
+        r.add_argument("--views", default=str(DEFAULT_VIEWS), help=argparse.SUPPRESS)
+        r.add_argument("--out", required=True, help="workspace / output folder")
+        r.add_argument("--mode", choices=["read-only", "workspace-write", "danger-full-access"],
+                       help="permission mode (default workspace-write)")
+        r.add_argument("--target", choices=["desktop", "any"], help="desktop adds the desktop gate (default)")
+        r.add_argument("--no-verify", action="store_true", help="do not run the final verification gate")
+        r.add_argument("--yes-deny", action="store_true", help="unattended: refuse every action that needs approval")
+        r.add_argument("--budget", type=float)
+        r.add_argument("--max-steps", type=int)
+        r.add_argument("--resume", action="store_true", help="continue an interrupted run in the same folder")
+        r.add_argument("--allow-peak", action="store_true", help="start even during DeepSeek peak hours (double price)")
+        r.add_argument("--force", action="store_true", help=argparse.SUPPRESS)
+
+    add_run_args(sub.add_parser("prompt", help="run the agent on any task (like `claw prompt`)"), True)
+    add_run_args(sub.add_parser("run", help="run the default task: generate the project from the architecture docs"), False)
     sub.add_parser("preprocess", help="only run Step 1", add_help=False)
     sub.add_parser("gui", help="open the desktop window")
     if argv[:1] == ["preprocess"]:
@@ -193,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "gui":
         from .gui import main as gui_main
         return gui_main()
-    return {"set-key": cmd_set_key, "ping": cmd_ping, "run": cmd_run}[args.cmd](args)
+    return {"set-key": cmd_set_key, "ping": cmd_ping, "run": cmd_run, "prompt": cmd_run}[args.cmd](args)
 
 
 if __name__ == "__main__":

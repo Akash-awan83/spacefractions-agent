@@ -1,8 +1,10 @@
 """Settings for the agent.
 
 The config file lives in the user's profile, never inside the repository:
-    Windows: %APPDATA%\\SpaceFractionsAgent\\config.json
-    others : ~/.config/SpaceFractionsAgent/config.json
+    Windows: %APPDATA%\\SimpleCodeAgent\\config.json
+    others : ~/.config/SimpleCodeAgent/config.json
+(Version 1 used a folder named after its first project; that file is still read once, so a
+saved API key is not lost.)
 so the DeepSeek API key cannot be committed to GitHub by accident.
 The environment variable DEEPSEEK_API_KEY, if set, overrides the stored key.
 """
@@ -13,7 +15,8 @@ import json
 import os
 from pathlib import Path
 
-APP_NAME = "SpaceFractionsAgent"
+APP_NAME = "SimpleCodeAgent"
+LEGACY_APP_NAMES = ("Space" + "FractionsAgent",)   # Version 1 settings folder
 
 # Official DeepSeek prices for deepseek-v4-pro, USD per 1M tokens, OFF-PEAK rates.
 # Source: https://api-docs.deepseek.com/quick_start/pricing (checked 2026-11-01).
@@ -54,6 +57,16 @@ DEFAULTS = {
     "max_steps": 80,             # max LLM calls per run
     "request_timeout": 600,      # seconds; thinking can be slow
     "pricing_per_million": DEFAULT_PRICING,
+    # --- agent behaviour (Version 2) ---
+    "permission_mode": "workspace-write",     # read-only | workspace-write | danger-full-access
+    "allow_rules": ["bash:python -m unittest*", "bash:python -m pytest*", "bash:git status*", "bash:git diff*"],
+    "deny_rules": ["bash:*git push*", "bash:*--force*"],
+    "ask_rules": [],
+    "target": "desktop",                      # "desktop" adds the desktop gate to the verifier
+    "verify_before_finish": True,             # the final gate (a built-in stop hook)
+    "trusted_folders": [],                    # folders whose CLAUDE.md / AGENTS.md may be loaded
+    "last_inputs": [],
+    "last_task": "",
     "last_doc": "",
     "last_views": "",
     "last_output": "",
@@ -69,8 +82,20 @@ def config_path() -> Path:
     return config_dir() / "config.json"
 
 
+def _legacy_config_path() -> Path | None:
+    base = Path(os.environ.get("APPDATA") or str(Path.home() / ".config"))
+    for name in LEGACY_APP_NAMES:
+        p = base / name / "config.json"
+        if p.is_file():
+            return p
+    return None
+
+
 def load_config(path: Path | None = None) -> dict:
-    path = path or config_path()
+    if path is None:
+        path = config_path()
+        if not path.is_file():
+            path = _legacy_config_path() or path
     cfg = copy.deepcopy(DEFAULTS)
     if path.is_file():
         try:
