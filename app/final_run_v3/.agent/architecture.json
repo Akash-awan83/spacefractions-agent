@@ -1,0 +1,1525 @@
+{
+  "schema_version": "1.0",
+  "sources": {
+    "documentation": "Architecture_Documentation.md",
+    "views": "Architecture_View.md",
+    "documentation_sha1": "8b01b93f7b60",
+    "views_sha1": "23cc8998dc3c"
+  },
+  "delivery_target": "desktop",
+  "project": {
+    "name": "Space Fractions",
+    "summary": "The Space Fractions system is a web-based, interactive learning tool designed to improve fraction-solving skills for sixth-grade students. The system consists of an introductory movie, a main menu, a series of fraction questions, and an ending scene with feedback. The architecture will follow a microservices approach, with separate components for the game logic, question management, and user interface. The system will be deployed on a cloud-based infrastructure, ensuring scalability and availability.",
+    "architectural_style": "Microservices",
+    "deployment_topology": "Cloud-based infrastructure"
+  },
+  "analysis_plan": [
+    "Analysis Plan:",
+    "Scope: Design a production-ready architectural documentation for the Space Fractions system.",
+    "Approach: Align with the Requirements document and 11 PlantUML diagrams to create a comprehensive architecture.",
+    "Validation: Verify that every FR/NFR/ASR is mapped in the traceability matrix and that all major components have API contracts and data schemas."
+  ],
+  "risks": [
+    {
+      "risk": "1. Scalability issues",
+      "mitigation": "Implement load balancing and autoscaling"
+    },
+    {
+      "risk": "2. Security vulnerabilities",
+      "mitigation": "Implement encryption and secure authentication"
+    },
+    {
+      "risk": "3. Data loss",
+      "mitigation": "Implement regular backups and data replication"
+    }
+  ],
+  "qa_coverage": [
+    {
+      "target": "ASR-1 (data durability)",
+      "tests": [
+        "Unit testing",
+        "Integration testing"
+      ]
+    },
+    {
+      "target": "NFR-1 (performance)",
+      "tests": [
+        "Load testing",
+        "Stress testing"
+      ]
+    },
+    {
+      "target": "ASR-2 (security)",
+      "tests": [
+        "Penetration testing",
+        "Vulnerability scanning"
+      ]
+    }
+  ],
+  "requirements": [
+    {
+      "id": "FR-1",
+      "short_text": "Play game",
+      "diagrams": [
+        "UseCaseDiagram"
+      ],
+      "components": [
+        "GameComponent"
+      ],
+      "artifacts": [
+        "openapi.yaml"
+      ],
+      "rationale": "Allows users to play the game"
+    },
+    {
+      "id": "NFR-1",
+      "short_text": "Performance",
+      "diagrams": [
+        "SequenceDiagram1"
+      ],
+      "components": [
+        "GameComponent"
+      ],
+      "artifacts": [
+        "internal.proto"
+      ],
+      "rationale": "Ensures the game responds quickly to user input"
+    },
+    {
+      "id": "ASR-1",
+      "short_text": "Data durability",
+      "diagrams": [
+        "DeploymentDiagram"
+      ],
+      "components": [
+        "QuestionComponent"
+      ],
+      "artifacts": [
+        "sql/question_ddl.sql"
+      ],
+      "rationale": "Ensures that question data is persisted and recoverable"
+    }
+  ],
+  "requirement_ids_referenced": [
+    "ASR-1",
+    "ASR-2",
+    "FR-1",
+    "NFR-1"
+  ],
+  "components": [
+    {
+      "name": "GameComponent",
+      "responsibility": "responsible for game logic and user interaction",
+      "has_detailed_design": true
+    },
+    {
+      "name": "QuestionComponent",
+      "responsibility": "responsible for question management and data persistence",
+      "has_detailed_design": false
+    },
+    {
+      "name": "UserComponent",
+      "responsibility": "responsible for user authentication and authorization",
+      "has_detailed_design": false
+    }
+  ],
+  "component_designs": {
+    "GameComponent": {
+      "responsibilities": [
+        "The GameComponent is responsible for game logic and user interaction. It owns the game state data."
+      ],
+      "technology_options": [
+        {
+          "category": "Language/runtime",
+          "name": "Node.js",
+          "version": "18-20",
+          "justification": "meets ASR-1 (data durability)",
+          "justifies": [
+            "ASR-1"
+          ]
+        },
+        {
+          "category": "Web framework",
+          "name": "Express.js",
+          "version": "4-5",
+          "justification": "meets NFR-1 (performance)",
+          "justifies": [
+            "NFR-1"
+          ]
+        },
+        {
+          "category": "RPC/HTTP",
+          "name": "RESTful API",
+          "version": "",
+          "justification": "meets ASR-2 (security)",
+          "justifies": [
+            "ASR-2"
+          ]
+        },
+        {
+          "category": "Persistence",
+          "name": "PostgreSQL",
+          "version": "14-15",
+          "justification": "meets ASR-1 (data durability)",
+          "justifies": [
+            "ASR-1"
+          ]
+        },
+        {
+          "category": "Cache",
+          "name": "Redis",
+          "version": "6-7",
+          "justification": "meets NFR-1 (performance)",
+          "justifies": [
+            "NFR-1"
+          ]
+        },
+        {
+          "category": "Messaging",
+          "name": "RabbitMQ",
+          "version": "3-4",
+          "justification": "meets ASR-2 (security)",
+          "justifies": [
+            "ASR-2"
+          ]
+        },
+        {
+          "category": "Search",
+          "name": "Elasticsearch",
+          "version": "7-8",
+          "justification": "meets NFR-1 (performance)",
+          "justifies": [
+            "NFR-1"
+          ]
+        },
+        {
+          "category": "Authn/authz",
+          "name": "OAuth2",
+          "version": "",
+          "justification": "meets ASR-2 (security)",
+          "justifies": [
+            "ASR-2"
+          ]
+        },
+        {
+          "category": "Observability",
+          "name": "Prometheus",
+          "version": "2-3",
+          "justification": "meets NFR-1 (performance)",
+          "justifies": [
+            "NFR-1"
+          ]
+        },
+        {
+          "category": "CI/CD",
+          "name": "Jenkins",
+          "version": "2-3",
+          "justification": "meets ASR-1 (data durability)",
+          "justifies": [
+            "ASR-1"
+          ]
+        },
+        {
+          "category": "Container runtime",
+          "name": "Docker",
+          "version": "20-21",
+          "justification": "meets ASR-1 (data durability)",
+          "justifies": [
+            "ASR-1"
+          ]
+        },
+        {
+          "category": "Infra provisioning",
+          "name": "Terraform",
+          "version": "1-2",
+          "justification": "meets ASR-1 (data durability)",
+          "justifies": [
+            "ASR-1"
+          ]
+        }
+      ],
+      "recommended_stack": [
+        {
+          "name": "Node.js",
+          "version": "18"
+        },
+        {
+          "name": "Express.js",
+          "version": "4"
+        },
+        {
+          "name": "PostgreSQL",
+          "version": "14"
+        },
+        {
+          "name": "Redis",
+          "version": "6"
+        },
+        {
+          "name": "RabbitMQ",
+          "version": "3"
+        },
+        {
+          "name": "Elasticsearch",
+          "version": "7"
+        },
+        {
+          "name": "OAuth2",
+          "version": ""
+        },
+        {
+          "name": "Prometheus",
+          "version": "2"
+        },
+        {
+          "name": "Jenkins",
+          "version": "2"
+        },
+        {
+          "name": "Docker",
+          "version": "20"
+        },
+        {
+          "name": "Terraform",
+          "version": "1"
+        }
+      ],
+      "stack_justification": "Meets ASR-1 (data durability), NFR-1 (performance), and ASR-2 (security)",
+      "caching_and_consistency": [
+        "Cache game state in Redis",
+        "Use PostgreSQL for data persistence",
+        "Implement data replication for high availability"
+      ]
+    }
+  },
+  "interfaces": {
+    "openapi": {
+      "openapi": "3.0.0",
+      "title": "Space Fractions API",
+      "version": "1.0.0",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/play",
+          "summary": "Play the game",
+          "has_request_body": false,
+          "response_codes": [
+            "200"
+          ],
+          "response_fields": {
+            "gameId": "integer"
+          }
+        }
+      ]
+    },
+    "proto": {
+      "package": "spacefractions",
+      "services": [
+        {
+          "name": "GameService",
+          "rpcs": [
+            {
+              "name": "Play",
+              "request": "PlayRequest",
+              "response": "PlayResponse"
+            }
+          ]
+        }
+      ],
+      "messages": [
+        {
+          "name": "PlayRequest",
+          "fields": [
+            {
+              "type": "int32",
+              "name": "gameId",
+              "number": 1,
+              "repeated": false
+            }
+          ]
+        },
+        {
+          "name": "PlayResponse",
+          "fields": [
+            {
+              "type": "int32",
+              "name": "gameId",
+              "number": 1,
+              "repeated": false
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "data_model": {
+    "tables": [
+      {
+        "name": "games",
+        "columns": [
+          {
+            "name": "id",
+            "type": "SERIAL",
+            "constraints": "PRIMARY KEY"
+          },
+          {
+            "name": "game_state",
+            "type": "JSONB",
+            "constraints": "NOT NULL"
+          }
+        ]
+      }
+    ]
+  },
+  "deployment": {
+    "kubernetes": [
+      {
+        "kind": "Deployment",
+        "name": "spacefractions",
+        "replicas": 3,
+        "containers": [
+          {
+            "name": "spacefractions",
+            "image": "spacefractions:latest",
+            "ports": [
+              80
+            ],
+            "has_liveness_probe": false,
+            "has_readiness_probe": false,
+            "has_resources": false
+          }
+        ]
+      }
+    ],
+    "db_ha": [
+      "Use PostgreSQL replication for high availability",
+      "Implement regular backups and data replication"
+    ]
+  },
+  "slo": {
+    "SLO": "99.99% uptime",
+    "Error budget": "1%",
+    "RTO": "1 hour",
+    "RPO": "1 hour"
+  },
+  "test_matrix": {
+    "columns": [
+      "Test Type",
+      "GameComponent",
+      "QuestionComponent"
+    ],
+    "test_types": [
+      "Unit testing",
+      "Integration testing",
+      "Contract testing",
+      "E2E testing",
+      "Chaos testing"
+    ],
+    "is_empty": true
+  },
+  "assumptions": [
+    {
+      "id": "A1",
+      "text": "The game will be played by 1000 users concurrently"
+    },
+    {
+      "id": "A2",
+      "text": "The game will be played for 1 hour per session"
+    }
+  ],
+  "open_questions": [
+    "What is the expected user growth rate?",
+    "What is the expected game session length?"
+  ],
+  "deliverables": [
+    "architecture.md",
+    "openapi.yaml",
+    "internal.proto",
+    "k8s/spacefractions-deployment.yaml",
+    "sql/game_ddl.sql",
+    "traceability_matrix.csv"
+  ],
+  "review_checklist": [
+    "All FR/NFR/ASR present in traceability matrix?",
+    "OpenAPI + internal API contract included and valid?",
+    "Each major component has: responsibilities, stack options (3+), recommended stack + ASR/NFR justification, API contract, and data schema?",
+    "k8s snippet present and syntactically valid?",
+    "SQL DDLs provided for persisted entities?",
+    "Assumptions and open questions clearly listed?"
+  ],
+  "notes": {
+    "Operations & Deployment": [
+      "DB HA topology: Use PostgreSQL replication for high availability",
+      "DB HA topology: Implement regular backups and data replication"
+    ],
+    "Security Design": [
+      "Auth & AuthZ: Implement OAuth2 for authentication and authorization",
+      "Auth & AuthZ: Use secure password storage and transmission",
+      "Secrets management & rotation policy: Use a secrets manager like Hashicorp's Vault",
+      "Secrets management & rotation policy: Rotate secrets regularly",
+      "TLS & service-mesh considerations: Implement TLS encryption for all communication",
+      "TLS & service-mesh considerations: Use a service mesh like Istio for traffic management and security",
+      "Threat model summary: Top 5 threats: unauthorized access, data breaches, denial of service, malware, and phishing",
+      "Threat model summary: Mitigations: implement secure authentication and authorization, use encryption, and monitor for suspicious activity"
+    ],
+    "Observability & SRE": [
+      "Key per-component & business metrics: GameComponent: game start rate, game completion rate, user engagement",
+      "Key per-component & business metrics: QuestionComponent: question response rate, question accuracy rate",
+      "SLOs, error budgets, RTO/RPO: SLO: 99.99% uptime",
+      "SLOs, error budgets, RTO/RPO: Error budget: 1%",
+      "SLOs, error budgets, RTO/RPO: RTO: 1 hour",
+      "SLOs, error budgets, RTO/RPO: RPO: 1 hour",
+      "Dashboard & runbook sketch: Implement a dashboard for monitoring key metrics",
+      "Dashboard & runbook sketch: Create a runbook for common issues and errors"
+    ],
+    "Testing Strategy": [
+      "Test data management and environment isolation strategy: Use a test data management tool like TestRail",
+      "Test data management and environment isolation strategy: Implement environment isolation using Docker and Kubernetes"
+    ],
+    "Migration, Data Conversion & Rollout Plan": [
+      "High-level migration steps: Migrate game data to new database",
+      "High-level migration steps: Update game logic to use new database",
+      "High-level migration steps: Deploy new game component",
+      "Data-sync strategies: Use a data sync tool like Apache NiFi",
+      "Data-sync strategies: Implement data replication for high availability",
+      "Backwards compatibility notes and migration windows for public APIs: Implement backwards compatibility for 1 year",
+      "Backwards compatibility notes and migration windows for public APIs: Use a migration window of 1 month"
+    ],
+    "Tradeoffs & Alternatives": [
+      "For each major decision: Alternative 1: Use a monolithic architecture",
+      "For each major decision: Alternative 2: Use a serverless architecture",
+      "For each major decision: Why chosen: Meets ASR-1 (data durability), NFR-1 (performance), and ASR-2 (security)"
+    ],
+    "Open Questions & Assumptions": [
+      "Assumptions: A1: The game will be played by 1000 users concurrently",
+      "Assumptions: A2: The game will be played for 1 hour per session",
+      "Unresolved stakeholder questions needing input: What is the expected user growth rate?",
+      "Unresolved stakeholder questions needing input: What is the expected game session length?"
+    ]
+  },
+  "views": {
+    "count": 13,
+    "diagrams": [
+      {
+        "id": "UseCaseDiagram",
+        "kind": "usecase",
+        "view": "ScenarioView",
+        "title": "Scenario View: Use Case Diagram",
+        "actors": [
+          {
+            "id": "EndUser",
+            "label": "End User"
+          },
+          {
+            "id": "Admin",
+            "label": "Admin"
+          }
+        ],
+        "use_cases": [
+          {
+            "id": "PlayGame",
+            "label": "Play Game",
+            "boundary": "System"
+          },
+          {
+            "id": "ViewScore",
+            "label": "View Score",
+            "boundary": "System"
+          },
+          {
+            "id": "UpdateQuestions",
+            "label": "Update Questions",
+            "boundary": "System"
+          },
+          {
+            "id": "ViewHelp",
+            "label": "View Help",
+            "boundary": "System"
+          }
+        ],
+        "associations": [
+          {
+            "actor": "EndUser",
+            "use_case": "PlayGame"
+          },
+          {
+            "actor": "EndUser",
+            "use_case": "ViewScore"
+          },
+          {
+            "actor": "EndUser",
+            "use_case": "ViewHelp"
+          },
+          {
+            "actor": "Admin",
+            "use_case": "UpdateQuestions"
+          }
+        ],
+        "issues": []
+      },
+      {
+        "id": "ClassDiagram",
+        "kind": "class",
+        "view": "LogicView",
+        "title": "Logic View: Class Diagram",
+        "classes": [
+          {
+            "name": "Game",
+            "attributes": [
+              {
+                "visibility": "private",
+                "name": "id",
+                "type": "string"
+              },
+              {
+                "visibility": "private",
+                "name": "score",
+                "type": "int"
+              }
+            ],
+            "methods": [
+              {
+                "visibility": "public",
+                "name": "play",
+                "type": "void",
+                "params": []
+              },
+              {
+                "visibility": "public",
+                "name": "viewScore",
+                "type": "int",
+                "params": []
+              }
+            ]
+          },
+          {
+            "name": "Question",
+            "attributes": [
+              {
+                "visibility": "private",
+                "name": "id",
+                "type": "string"
+              },
+              {
+                "visibility": "private",
+                "name": "prompt",
+                "type": "string"
+              },
+              {
+                "visibility": "private",
+                "name": "options",
+                "type": "List<string>"
+              }
+            ],
+            "methods": [
+              {
+                "visibility": "public",
+                "name": "getPrompt",
+                "type": "string",
+                "params": []
+              },
+              {
+                "visibility": "public",
+                "name": "getOptions",
+                "type": "List<string>",
+                "params": []
+              }
+            ]
+          },
+          {
+            "name": "User",
+            "attributes": [
+              {
+                "visibility": "private",
+                "name": "id",
+                "type": "string"
+              },
+              {
+                "visibility": "private",
+                "name": "username",
+                "type": "string"
+              }
+            ],
+            "methods": [
+              {
+                "visibility": "public",
+                "name": "playGame",
+                "type": "void",
+                "params": [
+                  {
+                    "name": "game",
+                    "type": "Game"
+                  }
+                ]
+              },
+              {
+                "visibility": "public",
+                "name": "viewScore",
+                "type": "int",
+                "params": [
+                  {
+                    "name": "game",
+                    "type": "Game"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "Admin",
+            "attributes": [
+              {
+                "visibility": "private",
+                "name": "id",
+                "type": "string"
+              },
+              {
+                "visibility": "private",
+                "name": "username",
+                "type": "string"
+              }
+            ],
+            "methods": [
+              {
+                "visibility": "public",
+                "name": "updateQuestions",
+                "type": "void",
+                "params": [
+                  {
+                    "name": "questions",
+                    "type": "List<Question>"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "relations": [
+          {
+            "from": "Game",
+            "to": "Question",
+            "arrow": "--*",
+            "type": "composition",
+            "whole": "Question",
+            "part": "Game"
+          },
+          {
+            "from": "User",
+            "to": "Game",
+            "arrow": "--*",
+            "type": "composition",
+            "whole": "Game",
+            "part": "User"
+          },
+          {
+            "from": "Admin",
+            "to": "Question",
+            "arrow": "--*",
+            "type": "composition",
+            "whole": "Question",
+            "part": "Admin"
+          }
+        ],
+        "issues": []
+      },
+      {
+        "id": "ObjectDiagram",
+        "kind": "object",
+        "view": "LogicView",
+        "title": "Logic View: Object Diagram",
+        "objects": [
+          {
+            "id": "game1",
+            "declared_with": "participant"
+          },
+          {
+            "id": "question1",
+            "declared_with": "participant"
+          },
+          {
+            "id": "user1",
+            "declared_with": "participant"
+          },
+          {
+            "id": "admin1",
+            "declared_with": "participant"
+          }
+        ],
+        "links": [
+          {
+            "from": "game1",
+            "to": "question1",
+            "label": ""
+          },
+          {
+            "from": "user1",
+            "to": "game1",
+            "label": ""
+          },
+          {
+            "from": "admin1",
+            "to": "question1",
+            "label": ""
+          }
+        ],
+        "issues": [
+          {
+            "type": "wrong_keyword",
+            "detail": "object diagram declares ['game1', 'question1', 'user1', 'admin1'] with 'participant' (sequence-diagram syntax); PlantUML expects 'object'"
+          }
+        ]
+      },
+      {
+        "id": "StateDiagram",
+        "kind": "state",
+        "view": "LogicView",
+        "title": "Logic View: State Diagram",
+        "states": [
+          "Playing",
+          "Paused",
+          "GameOver"
+        ],
+        "initial": [
+          "Playing"
+        ],
+        "final": [],
+        "transitions": [
+          {
+            "from": "[*]",
+            "to": "Playing",
+            "event": ""
+          },
+          {
+            "from": "Playing",
+            "to": "Paused",
+            "event": "pause()"
+          },
+          {
+            "from": "Paused",
+            "to": "Playing",
+            "event": "resume()"
+          },
+          {
+            "from": "Playing",
+            "to": "GameOver",
+            "event": "gameOver()"
+          }
+        ],
+        "issues": [
+          {
+            "type": "no_final_state",
+            "detail": "no transition to [*]"
+          }
+        ]
+      },
+      {
+        "id": "ActivityDiagram",
+        "kind": "activity",
+        "view": "ProcessView",
+        "title": "Process View: Activity Diagram",
+        "flow": [
+          {
+            "type": "start"
+          },
+          {
+            "type": "action",
+            "text": "play game"
+          },
+          {
+            "type": "if",
+            "condition": "game over?",
+            "branch": "yes"
+          },
+          {
+            "type": "action",
+            "text": "game over"
+          },
+          {
+            "type": "else",
+            "branch": "no"
+          },
+          {
+            "type": "action",
+            "text": "continue playing"
+          },
+          {
+            "type": "endif"
+          },
+          {
+            "type": "action",
+            "text": "calculate score"
+          },
+          {
+            "type": "action",
+            "text": "display score"
+          },
+          {
+            "type": "stop"
+          }
+        ],
+        "issues": [
+          {
+            "type": "no_loop",
+            "detail": "activity flow is linear (no while/repeat)"
+          }
+        ]
+      },
+      {
+        "id": "SequenceDiagram1",
+        "kind": "sequence",
+        "view": "ProcessView",
+        "title": "Process View: Sequence Diagram",
+        "participants": [
+          "User",
+          "Game",
+          "Question"
+        ],
+        "messages": [
+          {
+            "seq": 1,
+            "from": "User",
+            "to": "Game",
+            "text": "play()",
+            "is_return": false
+          },
+          {
+            "seq": 2,
+            "from": "Game",
+            "to": "Question",
+            "text": "getPrompt()",
+            "is_return": false
+          },
+          {
+            "seq": 3,
+            "from": "Question",
+            "to": "Game",
+            "text": "return prompt",
+            "is_return": true
+          },
+          {
+            "seq": 4,
+            "from": "Game",
+            "to": "User",
+            "text": "display prompt",
+            "is_return": false
+          },
+          {
+            "seq": 5,
+            "from": "User",
+            "to": "Game",
+            "text": "submit answer",
+            "is_return": false
+          },
+          {
+            "seq": 6,
+            "from": "Game",
+            "to": "Question",
+            "text": "check answer",
+            "is_return": false
+          },
+          {
+            "seq": 7,
+            "from": "Question",
+            "to": "Game",
+            "text": "return result",
+            "is_return": true
+          },
+          {
+            "seq": 8,
+            "from": "Game",
+            "to": "User",
+            "text": "display result",
+            "is_return": false
+          }
+        ],
+        "notes": [],
+        "issues": []
+      },
+      {
+        "id": "SequenceDiagram2",
+        "kind": "sequence",
+        "view": "ProcessView",
+        "title": "Process View: Sequence Diagram",
+        "participants": [
+          "Admin",
+          "Question"
+        ],
+        "messages": [
+          {
+            "seq": 1,
+            "from": "Admin",
+            "to": "Question",
+            "text": "update()",
+            "is_return": false
+          },
+          {
+            "seq": 2,
+            "from": "Question",
+            "to": "Admin",
+            "text": "return success",
+            "is_return": true
+          }
+        ],
+        "notes": [],
+        "issues": []
+      },
+      {
+        "id": "CollaborationDiagram1",
+        "kind": "collaboration",
+        "view": "ProcessView",
+        "title": "Process View: Collaboration Diagram",
+        "participants": [
+          "User",
+          "Game",
+          "Question"
+        ],
+        "messages": [
+          {
+            "seq": 1,
+            "from": "User",
+            "to": "Game",
+            "text": "play()",
+            "is_return": false
+          },
+          {
+            "seq": 2,
+            "from": "Game",
+            "to": "Question",
+            "text": "getPrompt()",
+            "is_return": false
+          },
+          {
+            "seq": 3,
+            "from": "Question",
+            "to": "Game",
+            "text": "return prompt",
+            "is_return": true
+          },
+          {
+            "seq": 4,
+            "from": "Game",
+            "to": "User",
+            "text": "display prompt",
+            "is_return": false
+          },
+          {
+            "seq": 5,
+            "from": "User",
+            "to": "Game",
+            "text": "submit answer",
+            "is_return": false
+          },
+          {
+            "seq": 6,
+            "from": "Game",
+            "to": "Question",
+            "text": "check answer",
+            "is_return": false
+          },
+          {
+            "seq": 7,
+            "from": "Question",
+            "to": "Game",
+            "text": "return result",
+            "is_return": true
+          },
+          {
+            "seq": 8,
+            "from": "Game",
+            "to": "User",
+            "text": "display result",
+            "is_return": false
+          }
+        ],
+        "notes": [
+          {
+            "position": "right",
+            "target": "Game",
+            "text": "Scenario: Play Game"
+          }
+        ],
+        "issues": []
+      },
+      {
+        "id": "CollaborationDiagram2",
+        "kind": "collaboration",
+        "view": "ProcessView",
+        "title": "Process View: Collaboration Diagram",
+        "participants": [
+          "Admin",
+          "Question"
+        ],
+        "messages": [
+          {
+            "seq": 1,
+            "from": "Admin",
+            "to": "Question",
+            "text": "update()",
+            "is_return": false
+          },
+          {
+            "seq": 2,
+            "from": "Question",
+            "to": "Admin",
+            "text": "return success",
+            "is_return": true
+          }
+        ],
+        "notes": [
+          {
+            "position": "right",
+            "target": "Question",
+            "text": "Scenario: Update Questions"
+          }
+        ],
+        "issues": []
+      },
+      {
+        "id": "PackageDiagram",
+        "kind": "package",
+        "view": "DevelopmentView",
+        "title": "Development View: Package Diagram",
+        "packages": [
+          {
+            "name": "Game",
+            "classes": [
+              "Game",
+              "Question"
+            ]
+          },
+          {
+            "name": "User",
+            "classes": [
+              "User"
+            ]
+          },
+          {
+            "name": "Admin",
+            "classes": [
+              "Admin"
+            ]
+          }
+        ],
+        "dependencies": [
+          {
+            "from": "Game",
+            "to": "User",
+            "arrow": "--"
+          },
+          {
+            "from": "Game",
+            "to": "Admin",
+            "arrow": "--"
+          }
+        ],
+        "issues": []
+      },
+      {
+        "id": "ComponentDiagram",
+        "kind": "component",
+        "view": "DevelopmentView",
+        "title": "Development View: Component Diagram",
+        "elements": [
+          {
+            "name": "GameComponent",
+            "type": "artifact"
+          },
+          {
+            "name": "QuestionComponent",
+            "type": "artifact"
+          },
+          {
+            "name": "UserComponent",
+            "type": "artifact"
+          },
+          {
+            "name": "AdminComponent",
+            "type": "artifact"
+          }
+        ],
+        "connections": [
+          {
+            "from": "GameComponent",
+            "to": "QuestionComponent",
+            "arrow": "--",
+            "label": ""
+          },
+          {
+            "from": "GameComponent",
+            "to": "UserComponent",
+            "arrow": "--",
+            "label": ""
+          },
+          {
+            "from": "GameComponent",
+            "to": "AdminComponent",
+            "arrow": "--",
+            "label": ""
+          }
+        ],
+        "issues": []
+      },
+      {
+        "id": "DeploymentDiagram",
+        "kind": "deployment",
+        "view": "PhysicalView",
+        "title": "Physical View: Deployment Diagram",
+        "elements": [
+          {
+            "name": "GameServer",
+            "type": "node"
+          },
+          {
+            "name": "QuestionServer",
+            "type": "node"
+          },
+          {
+            "name": "UserClient",
+            "type": "node"
+          },
+          {
+            "name": "AdminClient",
+            "type": "node"
+          }
+        ],
+        "connections": [
+          {
+            "from": "GameServer",
+            "to": "QuestionServer",
+            "arrow": "--",
+            "label": ""
+          },
+          {
+            "from": "GameServer",
+            "to": "UserClient",
+            "arrow": "--",
+            "label": ""
+          },
+          {
+            "from": "GameServer",
+            "to": "AdminClient",
+            "arrow": "--",
+            "label": ""
+          }
+        ],
+        "issues": []
+      },
+      {
+        "id": "ContainerDiagram",
+        "kind": "container",
+        "view": "PhysicalView",
+        "title": "Physical View: Container Diagram",
+        "elements": [
+          {
+            "name": "GameContainer",
+            "type": "artifact"
+          },
+          {
+            "name": "QuestionContainer",
+            "type": "artifact"
+          },
+          {
+            "name": "UserContainer",
+            "type": "artifact"
+          },
+          {
+            "name": "AdminContainer",
+            "type": "artifact"
+          }
+        ],
+        "connections": [
+          {
+            "from": "GameContainer",
+            "to": "QuestionContainer",
+            "arrow": "--",
+            "label": ""
+          },
+          {
+            "from": "GameContainer",
+            "to": "UserContainer",
+            "arrow": "--",
+            "label": ""
+          },
+          {
+            "from": "GameContainer",
+            "to": "AdminContainer",
+            "arrow": "--",
+            "label": ""
+          }
+        ],
+        "issues": []
+      }
+    ]
+  },
+  "conflicts": [
+    {
+      "id": "C01",
+      "severity": "high",
+      "category": "delivery_target",
+      "finding": "Documentation describes a web-based, cloud microservice system; the evaluation requires a desktop application.",
+      "evidence": [
+        "style=\"Microservices\"",
+        "topology=\"Cloud-based infrastructure\"",
+        "summary says 'web-based'",
+        "1 Kubernetes object(s)"
+      ],
+      "root_cause": "New constraint from the evaluation brief, not present in the SRS.",
+      "responsible_role": "external",
+      "refinement": "Build a desktop app. Keep each documented component as an in-process module behind an interface that mirrors the OpenAPI/proto contracts; use embedded SQLite instead of PostgreSQL; keep Dockerfile/k8s only as optional artifacts."
+    },
+    {
+      "id": "C02",
+      "severity": "high",
+      "category": "traceability",
+      "finding": "Requirement IDs used in the document but absent from the traceability matrix: ['ASR-2'].",
+      "evidence": [
+        "traceability defines ['ASR-1', 'FR-1', 'NFR-1']"
+      ],
+      "root_cause": "Incomplete requirement analysis: IDs cited but never specified.",
+      "responsible_role": "Analyst",
+      "refinement": "Add the missing IDs with an explicit short text derived from where they are cited, and mark them as inferred."
+    },
+    {
+      "id": "C03",
+      "severity": "medium",
+      "category": "traceability",
+      "finding": "Only 3 requirements are traced and the source Requirements document is not provided.",
+      "evidence": [
+        "use cases in views: ['Play Game', 'View Score', 'Update Questions', 'View Help']"
+      ],
+      "root_cause": "Incomplete requirement analysis: IDs cited but never specified.",
+      "responsible_role": "Analyst",
+      "refinement": "Derive functional requirements from use cases, state events and sequence messages; label them as derived."
+    },
+    {
+      "id": "C04",
+      "severity": "medium",
+      "category": "artifacts",
+      "finding": "Traceability names artifacts that are not in the deliverables list: ['sql/question_ddl.sql'].",
+      "evidence": [
+        "deliverables: ['architecture.md', 'internal.proto', 'k8s/spacefractions-deployment.yaml', 'openapi.yaml', 'sql/game_ddl.sql', 'traceability_matrix.csv']"
+      ],
+      "root_cause": "Artifact names differ between the traceability matrix and the deliverables.",
+      "responsible_role": "Analyst",
+      "refinement": "Generate both names or rename consistently; record the choice."
+    },
+    {
+      "id": "C05",
+      "severity": "medium",
+      "category": "components",
+      "finding": "Diagrams add components ['Admin'] that the architecture overview (lists ['Game', 'Question', 'User']) does not define.",
+      "evidence": [
+        "ComponentDiagram: extra ['Admin'], missing []",
+        "ContainerDiagram: extra ['Admin'], missing []",
+        "DeploymentDiagram: extra ['Admin'], missing []"
+      ],
+      "root_cause": "Designer views add or omit elements from the Modeler's logical view.",
+      "responsible_role": "Designer",
+      "refinement": "Use the union of components; give each one an owner module and responsibilities."
+    },
+    {
+      "id": "C06",
+      "severity": "medium",
+      "category": "components",
+      "finding": "Components without a detailed design section: ['QuestionComponent', 'UserComponent'].",
+      "evidence": [
+        "detailed designs exist for ['GameComponent']"
+      ],
+      "root_cause": "Designer views add or omit elements from the Modeler's logical view.",
+      "responsible_role": "Designer",
+      "refinement": "Derive responsibilities, interfaces and schema for them from the class and sequence diagrams."
+    },
+    {
+      "id": "C07",
+      "severity": "medium",
+      "category": "data_types",
+      "finding": "Identifier types disagree across class diagram, SQL, OpenAPI and proto.",
+      "evidence": [
+        "class Game.id: string",
+        "class Question.id: string",
+        "class User.id: string",
+        "class Admin.id: string",
+        "sql games.id: SERIAL",
+        "openapi /play.gameId: integer",
+        "proto PlayRequest.gameId: int32",
+        "proto PlayResponse.gameId: int32"
+      ],
+      "root_cause": "Interface specifications are not unified across layers.",
+      "responsible_role": "Designer",
+      "refinement": "Pick one identifier type for all layers and document it."
+    },
+    {
+      "id": "C08",
+      "severity": "high",
+      "category": "interfaces",
+      "finding": "8 modelled behaviours have no operation in the OpenAPI/proto contracts.",
+      "evidence": [
+        "use case \"View Score\"",
+        "use case \"Update Questions\"",
+        "use case \"View Help\"",
+        "state event pause()",
+        "state event resume()",
+        "state event gameOver()",
+        "message User->Game \"submit answer\"",
+        "message Admin->Question \"update()\""
+      ],
+      "root_cause": "Interface design does not cover all modelled behaviour.",
+      "responsible_role": "Designer",
+      "refinement": "Add an operation for each; keep names traceable to the diagram element."
+    },
+    {
+      "id": "C09",
+      "severity": "low",
+      "category": "interfaces",
+      "finding": "GET /play changes state (\"Play the game\") but uses GET.",
+      "evidence": [
+        "GET /play"
+      ],
+      "root_cause": "Interface design does not cover all modelled behaviour.",
+      "responsible_role": "Designer",
+      "refinement": "Use POST for state-changing operations."
+    },
+    {
+      "id": "C10",
+      "severity": "high",
+      "category": "data_model",
+      "finding": "Classes with no SQL table: ['Question', 'User', 'Admin'] (ASR-1 requires question data to be durable).",
+      "evidence": [
+        "tables defined: ['games']"
+      ],
+      "root_cause": "Data design does not cover all persisted domain classes.",
+      "responsible_role": "Designer",
+      "refinement": "Create a table for every persisted class."
+    },
+    {
+      "id": "C11",
+      "severity": "low",
+      "category": "slo",
+      "finding": "SLO 99.99% implies an error budget of 0.01%, not 1%.",
+      "evidence": [
+        "SLO: 99.99% uptime",
+        "Error budget: 1%"
+      ],
+      "root_cause": "Quality-attribute targets are numerically inconsistent.",
+      "responsible_role": "Modeler",
+      "refinement": "Correct one of the two numbers; for a desktop app, restate as availability of local features."
+    },
+    {
+      "id": "C12",
+      "severity": "medium",
+      "category": "uml_semantics",
+      "finding": "Composition arrows, read with PlantUML semantics, put the diamond on the opposite class from what the other diagrams suggest.",
+      "evidence": [
+        "Game --* Question => whole=Question, part=Game",
+        "User --* Game => whole=Game, part=User",
+        "Admin --* Question => whole=Question, part=Admin"
+      ],
+      "root_cause": "Modelling notation or semantics error in a UML view.",
+      "responsible_role": "Designer",
+      "refinement": "Treat as: Game aggregates Questions, User plays Games, Admin manages Questions; record the reinterpretation."
+    },
+    {
+      "id": "C13",
+      "severity": "medium",
+      "category": "uml_wrong_keyword",
+      "finding": "ObjectDiagram: object diagram declares ['game1', 'question1', 'user1', 'admin1'] with 'participant' (sequence-diagram syntax); PlantUML expects 'object'",
+      "evidence": [
+        "object diagram declares ['game1', 'question1', 'user1', 'admin1'] with 'participant' (sequence-diagram syntax); PlantUML expects 'object'"
+      ],
+      "root_cause": "Modelling notation or semantics error in a UML view.",
+      "responsible_role": "Designer",
+      "refinement": "Read the declarations as objects."
+    },
+    {
+      "id": "C14",
+      "severity": "medium",
+      "category": "uml_no_final_state",
+      "finding": "StateDiagram: no transition to [*]",
+      "evidence": [
+        "no transition to [*]"
+      ],
+      "root_cause": "Modelling notation or semantics error in a UML view.",
+      "responsible_role": "Designer",
+      "refinement": "Add GameOver -> [*] (return to menu / exit)."
+    },
+    {
+      "id": "C15",
+      "severity": "medium",
+      "category": "uml_no_loop",
+      "finding": "ActivityDiagram: activity flow is linear (no while/repeat)",
+      "evidence": [
+        "activity flow is linear (no while/repeat)"
+      ],
+      "root_cause": "Modelling notation or semantics error in a UML view.",
+      "responsible_role": "Designer",
+      "refinement": "Loop over the question list until all questions are answered."
+    },
+    {
+      "id": "C16",
+      "severity": "low",
+      "category": "uml_redundancy",
+      "finding": "CollaborationDiagram1 repeats SequenceDiagram1 message-for-message.",
+      "evidence": [
+        "8 identical messages"
+      ],
+      "root_cause": "Modelling notation or semantics error in a UML view.",
+      "responsible_role": "Designer",
+      "refinement": "Treat them as one scenario."
+    },
+    {
+      "id": "C17",
+      "severity": "low",
+      "category": "uml_redundancy",
+      "finding": "CollaborationDiagram2 repeats SequenceDiagram2 message-for-message.",
+      "evidence": [
+        "2 identical messages"
+      ],
+      "root_cause": "Modelling notation or semantics error in a UML view.",
+      "responsible_role": "Designer",
+      "refinement": "Treat them as one scenario."
+    },
+    {
+      "id": "C18",
+      "severity": "medium",
+      "category": "scope",
+      "finding": "Summary features not modelled in any diagram: ['movie', 'menu', 'ending', 'feedback'].",
+      "evidence": [
+        "The Space Fractions system is a web-based, interactive learning tool designed to improve fraction-solving skills for sixth-grade students. The system consists o..."
+      ],
+      "root_cause": "Requirements in the summary were not carried into the views.",
+      "responsible_role": "Modeler",
+      "refinement": "Implement them as screens of the game (intro, main menu, ending) and trace them to the summary."
+    },
+    {
+      "id": "C19",
+      "severity": "medium",
+      "category": "testing",
+      "finding": "Test matrix lists test types but every cell is empty.",
+      "evidence": [
+        "Unit testing",
+        "Integration testing",
+        "Contract testing",
+        "E2E testing",
+        "Chaos testing"
+      ],
+      "root_cause": "Verification plan left unspecified.",
+      "responsible_role": "Modeler",
+      "refinement": "Fill it with the concrete test files the generator produces."
+    },
+    {
+      "id": "C20",
+      "severity": "low",
+      "category": "operations",
+      "finding": "Kubernetes object spacefractions is not production-ready.",
+      "evidence": [
+        "image spacefractions:latest uses :latest",
+        "no liveness/readiness probes",
+        "no resource requests/limits",
+        "one Deployment for a 3-component microservice design"
+      ],
+      "root_cause": "Deployment plan not refined to production level.",
+      "responsible_role": "Modeler",
+      "refinement": "Pin image tags, add probes and resources, one Deployment per service (optional for desktop)."
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+requirement_id,requirement,component,code_files,test_files
+FR-1,Play game,GameComponent,spacefractions/game/game.py;spacefractions/game/service.py;spacefractions/game/state.py;spacefractions/ui/app.py;main.py,tests/test_game.py;tests/test_game_service.py
+FR-2,View score,GameComponent,spacefractions/game/game.py;spacefractions/game/service.py;spacefractions/ui/app.py,tests/test_game.py;tests/test_game_service.py
+FR-3,Update questions,AdminComponent,spacefractions/admin/service.py;spacefractions/question/service.py;spacefractions/question/repository.py;spacefractions/ui/app.py,tests/test_admin.py;tests/test_question.py
+FR-4,View help,GameComponent,spacefractions/help.py;spacefractions/ui/app.py,tests/test_help.py
+FR-5,Pause/resume game,GameComponent,spacefractions/game/state.py;spacefractions/game/game.py,tests/test_game.py
+FR-6,Game over,GameComponent,spacefractions/game/state.py;spacefractions/game/game.py,tests/test_game.py
+FR-7,Submit answer,GameComponent,spacefractions/game/game.py;spacefractions/question/question.py;spacefractions/question/service.py,tests/test_game.py;tests/test_question.py
+NFR-1,Performance (responsive local gameplay),GameComponent,spacefractions/game/service.py;spacefractions/game/game.py;spacefractions/ui/app.py,tests/test_game_service.py
+ASR-1,Data durability,QuestionComponent,spacefractions/persistence.py;spacefractions/question/repository.py;sql/question_ddl.sql,tests/test_persistence.py;tests/test_question.py
+ASR-2,Security (authentication and secure storage),UserComponent,spacefractions/user/user.py;spacefractions/user/service.py;spacefractions/persistence.py,tests/test_user.py
