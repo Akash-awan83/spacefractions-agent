@@ -116,7 +116,7 @@ a peak-hour start asks first.
 **$0.115**, 97.7% cache hit rate, 31 files, 11 passing tests, all gates passed; the generated Tkinter game
 was played. Its output and logs are in [`sample_run/`](sample_run/).
 
-**Version 2 run:** [['sample_run/'](sample_run/)](https://github.com/Akash-awan83/spacefractions-agent/tree/main/app/final_run_v3).
+**Version 2 run:** (https://github.com/Akash-awan83/spacefractions-agent/tree/main/app/final_run_v3).
 
 ## Run from source and tests
 
